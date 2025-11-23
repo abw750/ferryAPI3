@@ -37,6 +37,11 @@ console.log("[ferryClock] loaded");
   const BAR_THICKNESS  = 8; // px, thickness for both track and colored segment
   const STROKE_CAP     = "round";
 
+  // Dock arcs: radii match faceRenderer rings
+  const DOCK_ARC_THICKNESS = 8;   // stroke width inside each white band
+  const R_DOCK_UPPER = 169;       // outer lane: midpoint of 160–178 band
+  const R_DOCK_LOWER = 154;       // inner lane: midpoint above numerals at ~148
+
   // ---------- entry point ----------
   if (document.readyState === "loading") {
     console.log("[ferryClock] document still loading, waiting for DOMContentLoaded");
@@ -124,6 +129,9 @@ console.log("[ferryClock] loaded");
     layers.clear();
 
     const ns = "http://www.w3.org/2000/svg";
+    const now = new Date();
+    const dockArcsGroup = ensureDockArcGroup(layers);
+
 
     // Helper: create SVG element
     function elNS(tag, attrs) {
@@ -214,6 +222,7 @@ function circleDot(x, y, r, fill) {
       t.textContent = text;
       group.appendChild(t);
     }
+
     // Helper: normalize time labels for the clock
     function formatClockLabel(raw) {
       if (!raw || typeof raw !== "string") return "";
@@ -238,11 +247,127 @@ function circleDot(x, y, r, fill) {
       return trimmed;
     }
 
+    // ---- Dock arc helpers (Cannon: arcs in outer/inner rings) ----
+
+    function polarToCartesian(cx, cy, r, angleRad) {
+      return {
+        x: cx + r * Math.cos(angleRad),
+        y: cy + r * Math.sin(angleRad),
+      };
+    }
+
+    // Returns an SVG arc path from startAngle to endAngle (radians, 0 at 3 oclock, CCW)
+    function describeArcPath(cx, cy, r, startAngle, endAngle) {
+      const start = polarToCartesian(cx, cy, r, startAngle);
+      const end   = polarToCartesian(cx, cy, r, endAngle);
+
+      // Normalize delta to [0, 2π]
+      let delta = endAngle - startAngle;
+      while (delta < 0) delta += Math.PI * 2;
+      while (delta > Math.PI * 2) delta -= Math.PI * 2;
+
+      const largeArcFlag = delta > Math.PI ? 1 : 0;
+      const sweepFlag = 1; // clockwise around dial
+
+      return [
+        "M", start.x, start.y,
+        "A", r, r, 0, largeArcFlag, sweepFlag, end.x, end.y,
+      ].join(" ");
+    }
+
+    // Ensure a stable group for dock arcs; keep them behind top/bottom rows.
+    function ensureDockArcGroup(layers) {
+      const gOverlay = layers.overlay;
+      if (!gOverlay) return null;
+
+      let g = gOverlay.querySelector("#dock-arcs");
+      if (!g) {
+        g = elNS("g", { id: "dock-arcs" });
+        // Insert as first child so arcs render behind rows.
+        if (gOverlay.firstChild) {
+          gOverlay.insertBefore(g, gOverlay.firstChild);
+        } else {
+          gOverlay.appendChild(g);
+        }
+      }
+      // Clear arcs each render
+      g.innerHTML = "";
+      return g;
+    }
+
+    function drawDockArcForLane(arcsGroup, lane, laneKey, now) {
+      if (!arcsGroup || !lane) return;
+      if (!lane.atDock) return;
+      if (!lane.dockStartTime) return;
+
+      const startDate = new Date(lane.dockStartTime);
+      const startMs = startDate.getTime();
+      if (!Number.isFinite(startMs)) return;
+
+      const nowMs = now.getTime();
+      const elapsedMs = nowMs - startMs;
+      if (elapsedMs <= 0) return;
+
+      const elapsedSeconds = elapsedMs / 1000;
+      // 0–3600 seconds map to 0–1 arc fraction
+      let frac = elapsedSeconds / 3600;
+      if (frac <= 0) return;
+      if (frac > 1) frac = 1;
+
+      // Choose ring radius per lane
+      const radius = laneKey === "upper" ? R_DOCK_UPPER : R_DOCK_LOWER;
+
+      // Anchor: minute hand at dockStartTime, local time
+      const localMinutes = startDate.getMinutes() % 60;
+      const startAngle = (Math.PI / 30) * localMinutes - Math.PI / 2;
+
+      // Span: fraction of full circle, clockwise
+      const spanAngle = frac * Math.PI * 2;
+      const endAngle = startAngle + spanAngle;
+
+      // Color semantics: match lane direction palette, strong vs light
+      const dirKey = laneDir(lane);
+      let scheme;
+      if (dirKey === "rtl") {
+        scheme = COLORS.rtl;
+      } else if (dirKey === "ltr") {
+        scheme = COLORS.ltr;
+      } else {
+        return; // unknown direction, do not draw arc
+      }
+
+      const lowConfidence = !!lane.dockStartIsSynthetic || !!lane.isStale;
+      const strokeColor = lowConfidence ? scheme.light : scheme.strong;
+
+      if (frac >= 0.999) {
+        // Full circle: draw circle stroke instead of arc
+        const circle = elNS("circle", {
+          cx: String(CX),
+          cy: String(CY),
+          r: String(radius),
+          fill: "none",
+          stroke: strokeColor,
+          "stroke-width": String(DOCK_ARC_THICKNESS),
+        });
+        arcsGroup.appendChild(circle);
+      } else {
+        const path = elNS("path", {
+          d: describeArcPath(CX, CY, radius, startAngle, endAngle),
+          fill: "none",
+          stroke: strokeColor,
+          "stroke-width": String(DOCK_ARC_THICKNESS),
+          "stroke-linecap": STROKE_CAP,
+        });
+        arcsGroup.appendChild(path);
+      }
+    }
+
     if (!state || !state.lanes) {
       console.warn("[ferryClock] invalid state payload for overlay; drawing DEBUG only");
       addText(layers.top, "NO STATE", CX, CY);
       return;
     }
+
 
     const upperLane = state.lanes.upper || null;
     const lowerLane = state.lanes.lower || null;
@@ -258,6 +383,12 @@ function circleDot(x, y, r, fill) {
     const terminalIdEast = route.terminalIdEast;
 
     console.log("[ferryClock] lanes:", { upperLane, lowerLane, terminalIdWest, terminalIdEast });
+
+    // Dock arcs: outer ring for upper lane, inner ring for lower lane
+    if (dockArcsGroup) {
+      if (upperLane) drawDockArcForLane(dockArcsGroup, upperLane, "upper", now);
+      if (lowerLane) drawDockArcForLane(dockArcsGroup, lowerLane, "lower", now);
+    }
 
     // Dial-side WEST / EAST labels using same precedence as dotApp (Cannon: backend route drives labels)
     const labelWestText =
@@ -282,7 +413,7 @@ function circleDot(x, y, r, fill) {
       const barWidth = BAR_W;
 
       // Base radius from center to bar end, plus extra outward offset
-      const offset = barWidth / 2 + 50; // 10px original + 20px outward
+      const offset = barWidth / 2 + 50; // 10px original + 50px outward
 
       // Symmetric positions on 9–3 axis
       const xWest = CX - offset;
