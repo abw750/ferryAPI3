@@ -11,18 +11,275 @@
 
 const { getRouteById } = require("./routeConfig");
 const { getTerminalIdsForRoute } = require("./terminalMap");
-const { getNormalizedVessels, fetchDailySchedule } = require("./wsdotClient");
+const {
+  getNormalizedVessels,
+  fetchDailySchedule,
+  fetchTerminalSpaces,
+} = require("./wsdotClient");
+
 
 // Last-good lane cache (in-memory, per route, per lane).
 // We reuse a lane for a finite window when live data disappears,
 // marking it stale instead of dropping the lane to "Unknown".
 const LAST_GOOD_TTL_MS = 10 * 60 * 1000; // 10 minutes; adjust as needed.
-
 const lastGoodLanesByRoute = Object.create(null);
 
 // Per-route, per-lane dock metadata (Cannon dock fields).
 // Tracks when a lane entered dock and whether that time is synthetic.
 const dockStateByRoute = Object.create(null);
+
+// Capacity TTL: same 10-minute window as lanes (Cannon stale logic).
+const CAPACITY_TTL_MS = LAST_GOOD_TTL_MS;
+
+// Sticky per-vessel max auto capacity.
+// Once we learn a vessel's MaxSpaceCount (DepartureMaxSpaceCount), it never changes.
+const vesselMaxCapacityById = Object.create(null);
+
+// Last-good capacity per route, per side ("west" | "east").
+const lastGoodCapacityByRoute = Object.create(null);
+
+// Simple WSDOT /Date(…)/ parser for Terminals timestamps.
+//
+// Example: "/Date(1763623116000-0800)/"
+function parseWsdotDateForTerminals(raw) {
+  if (!raw) return null;
+  const m = /\/Date\((\d+)([+-]\d{4})?\)\//.exec(String(raw));
+  if (!m) return null;
+  const ms = parseInt(m[1], 10);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms);
+}
+
+function getStickyVesselMax(vesselId, observedMax) {
+  if (vesselId == null) return null;
+  const key = String(vesselId);
+
+  if (Object.hasOwn(vesselMaxCapacityById, key)) {
+    return vesselMaxCapacityById[key];
+  }
+
+  if (typeof observedMax === "number" && Number.isFinite(observedMax) && observedMax > 0) {
+    vesselMaxCapacityById[key] = observedMax;
+    return observedMax;
+  }
+
+  return null;
+}
+
+function getLastGoodCapacity(routeId, side, nowMs) {
+  const routeKey = String(routeId);
+  const entry = lastGoodCapacityByRoute[routeKey];
+  if (!entry) return null;
+
+  const sideEntry = entry[side];
+  if (!sideEntry) return null;
+
+  if ((nowMs - sideEntry.tMs) > CAPACITY_TTL_MS) {
+    return null;
+  }
+  return sideEntry.data;
+}
+
+function setLastGoodCapacity(routeId, side, data, nowMs) {
+  const routeKey = String(routeId);
+  if (!lastGoodCapacityByRoute[routeKey]) {
+    lastGoodCapacityByRoute[routeKey] = {};
+  }
+  // store shallow copy so callers cannot mutate cache.
+  lastGoodCapacityByRoute[routeKey][side] = {
+    data: { ...data },
+    tMs: nowMs,
+  };
+}
+
+// Core helper: pick capacity for a single terminal side ("west" or "east")
+// using hybrid strategy:
+//  1) Prefer schedule-matched vessel with real drive-up data.
+//  2) Else, prefer any departure with real drive-up data.
+//  3) If both fail, fall back to last-good capacity (if within TTL).
+//
+// Returns:
+//   {
+//     data: {
+//       terminalId,
+//       vesselId,
+//       vesselName,
+//       maxAuto,
+//       availAuto,
+//       lastUpdated,
+//       isStale
+//     } | null,
+//     usedFallback: boolean
+//   }
+function deriveCapacityForSide(options) {
+  const {
+    routeId,
+    side,                 // "west" | "east"
+    terminalIdSide,       // this side's terminalId
+    terminalIdOther,      // opposite side's terminalId
+    scheduledLane,        // lane object from deriveLaneVesselsForRoute, may be null
+    terminalsPayload,     // array from fetchTerminalSpaces()
+    now,
+  } = options;
+
+  const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+  let usedFallback = false;
+
+  if (!Array.isArray(terminalsPayload) || !terminalIdSide || !terminalIdOther) {
+    // nothing to work with -> last-good or null
+    const lastGood = getLastGoodCapacity(routeId, side, nowMs);
+    if (lastGood) {
+      return {
+        data: { ...lastGood, isStale: true },
+        usedFallback: true,
+      };
+    }
+    return { data: null, usedFallback: true };
+  }
+
+  const sideTermIdNum = Number(terminalIdSide);
+  const otherTermIdNum = Number(terminalIdOther);
+
+  const scheduledVesselId =
+    scheduledLane && scheduledLane.vesselId != null
+      ? Number(scheduledLane.vesselId)
+      : null;
+
+  // Flatten candidates: departures from this terminal that serve the opposite terminal.
+  const candidates = [];
+
+  for (const terminalRow of terminalsPayload) {
+    if (!terminalRow || Number(terminalRow.TerminalID) !== sideTermIdNum) continue;
+
+    const departingSpaces = Array.isArray(terminalRow.DepartingSpaces)
+      ? terminalRow.DepartingSpaces
+      : [];
+
+    for (const dep of departingSpaces) {
+      if (!dep) continue;
+
+      const arrivalList = Array.isArray(dep.SpaceForArrivalTerminals)
+        ? dep.SpaceForArrivalTerminals
+        : [];
+
+      for (const arr of arrivalList) {
+        if (!arr) continue;
+        if (Number(arr.TerminalID) !== otherTermIdNum) continue;
+
+        const depDate =
+          parseWsdotDateForTerminals(dep.Departure) ||
+          (dep.Departure ? new Date(dep.Departure) : null);
+
+        const depMs = depDate && Number.isFinite(depDate.getTime())
+          ? depDate.getTime()
+          : null;
+
+        const vesselId = dep.VesselID != null ? Number(dep.VesselID) : null;
+        const vesselName = dep.VesselName || arr.VesselName || null;
+
+        const rawMax =
+          typeof dep.MaxSpaceCount === "number"
+            ? dep.MaxSpaceCount
+            : (typeof arr.MaxSpaceCount === "number" ? arr.MaxSpaceCount : null);
+
+        const driveUp =
+          typeof arr.DriveUpSpaceCount === "number"
+            ? arr.DriveUpSpaceCount
+            : null;
+
+        candidates.push({
+          depMs,
+          vesselId,
+          vesselName,
+          rawMax,
+          driveUp,
+        });
+      }
+    }
+  }
+
+  const futureCandidates = candidates
+    .filter(c => c.depMs != null && c.depMs >= nowMs)
+    .sort((a, b) => a.depMs - b.depMs);
+
+  let chosen = null;
+
+  // Helper: finite drive-up value
+  const hasDriveUp = (c) =>
+    typeof c.driveUp === "number" && Number.isFinite(c.driveUp);
+
+  // Step 1: schedule-matched vessel, earliest future departure WITH real drive-up
+  if (scheduledVesselId != null) {
+    const schedMatches = futureCandidates.filter(
+      c => c.vesselId != null && Number(c.vesselId) === scheduledVesselId
+    );
+    if (schedMatches.length > 0) {
+      const schedWithDriveUp = schedMatches.filter(hasDriveUp);
+      if (schedWithDriveUp.length > 0) {
+        chosen = schedWithDriveUp[0];
+      }
+    }
+  }
+
+  // Step 2: fallback to next departure with real drive-up data
+  if (!chosen && futureCandidates.length > 0) {
+    const withDriveUp = futureCandidates.filter(hasDriveUp);
+    if (withDriveUp.length > 0) {
+      chosen = withDriveUp[0];
+      // If we had a scheduled vessel, this is a logical fallback.
+      if (scheduledVesselId != null) {
+        usedFallback = true;
+      }
+    }
+  }
+
+  const lastGood = getLastGoodCapacity(routeId, side, nowMs);
+
+  // If we still have no candidate, fall back to last-good or null
+  if (!chosen) {
+    if (lastGood) {
+      return {
+        data: { ...lastGood, isStale: true },
+        usedFallback: true,
+      };
+    }
+    return { data: null, usedFallback: true };
+  }
+
+  const maxAuto = getStickyVesselMax(chosen.vesselId, chosen.rawMax);
+
+  let availAuto = chosen.driveUp;
+  let isStale = false;
+
+  if (availAuto == null || !Number.isFinite(availAuto)) {
+    if (lastGood && typeof lastGood.availAuto === "number") {
+      availAuto = lastGood.availAuto;
+      isStale = true;
+      usedFallback = true;
+    } else {
+      // No usable capacity; do not fabricate 0.
+      return {
+        data: null,
+        usedFallback: true,
+      };
+    }
+  }
+
+  const data = {
+    terminalId: terminalIdSide,
+    vesselId: chosen.vesselId,
+    vesselName: chosen.vesselName,
+    maxAuto: maxAuto != null ? maxAuto : null,
+    availAuto,
+    lastUpdated: nowIso,
+    isStale,
+  };
+
+  setLastGoodCapacity(routeId, side, data, nowMs);
+
+  return { data, usedFallback };
+}
 
 function updateDockMetaForLane(routeId, laneKey, lane, now) {
   const nowMs = now.getTime();
@@ -563,6 +820,21 @@ async function buildDotState(routeId) {
   const labelEast = deriveLabel(route.terminalNameEast);
   const { terminalIdWest, terminalIdEast } = getTerminalIdsForRoute(route);
 
+  // ---- Capacity placeholders (to be filled below) ----
+  let capacity = null;
+  let capacityLastUpdatedIso = null;
+  let capacityStale = true;
+  let capacityUsedFallback = false;
+
+  let terminalsPayload = null;
+  try {
+    terminalsPayload = await fetchTerminalSpaces();
+  } catch (err) {
+    console.error("Error fetching WSDOT terminalsailingspace:", err.message || err);
+    terminalsPayload = null;
+    capacityStale = true;
+  }
+
   // Live vessels (may be empty or error)
   let liveVessels = [];
   let usedFallback = false;
@@ -587,6 +859,68 @@ const { upper: scheduledUpper, lower: scheduledLower, scheduleError } =
 if (scheduleError || (!scheduledUpper && !scheduledLower)) {
   return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
 }
+
+  // ---- Capacity for west/east terminals (Cannon capacity pies, hybrid rule) ----
+  if (terminalsPayload && Array.isArray(terminalsPayload)) {
+    const westResult = deriveCapacityForSide({
+      routeId: route.routeId,
+      side: "west",
+      terminalIdSide: terminalIdWest,
+      terminalIdOther: terminalIdEast,
+      scheduledLane: scheduledUpper || null,
+      terminalsPayload,
+      now,
+    });
+
+    const eastResult = deriveCapacityForSide({
+      routeId: route.routeId,
+      side: "east",
+      terminalIdSide: terminalIdEast,
+      terminalIdOther: terminalIdWest,
+      scheduledLane: scheduledLower || null,
+      terminalsPayload,
+      now,
+    });
+
+    const west = westResult.data;
+    const east = eastResult.data;
+
+    capacityUsedFallback = !!(westResult.usedFallback || eastResult.usedFallback);
+
+    if (west || east) {
+      capacity = {
+        westMaxAuto: west && typeof west.maxAuto === "number" ? west.maxAuto : null,
+        westAvailAuto: west && typeof west.availAuto === "number" ? west.availAuto : null,
+        westVesselId: west ? west.vesselId : null,
+        westVesselName: west ? west.vesselName : null,
+
+        eastMaxAuto: east && typeof east.maxAuto === "number" ? east.maxAuto : null,
+        eastAvailAuto: east && typeof east.availAuto === "number" ? east.availAuto : null,
+        eastVesselId: east ? east.vesselId : null,
+        eastVesselName: east ? east.vesselName : null,
+      };
+
+      const timestamps = [];
+      if (west && west.lastUpdated) timestamps.push(west.lastUpdated);
+      if (east && east.lastUpdated) timestamps.push(east.lastUpdated);
+
+      capacityLastUpdatedIso = timestamps.length > 0 ? timestamps.sort().slice(-1)[0] : null;
+      capacityStale = !!(
+        (west && west.isStale) ||
+        (east && east.isStale) ||
+        capacityUsedFallback
+      );
+    } else {
+      capacity = null;
+      capacityLastUpdatedIso = null;
+      capacityStale = true;
+    }
+  } else {
+    // Terminals payload missing; capacity remains null/stale.
+    capacity = null;
+    capacityLastUpdatedIso = null;
+    capacityStale = true;
+  }
 
 // Load live vessels indexed by VesselID (may be empty)
 const byId = new Map();
@@ -765,11 +1099,12 @@ if (scheduleError || (!scheduledUpper && !scheduledLower)) {
       upper: upperLane,
       lower: lowerLane,
     },
+    capacity: capacity || null,
     meta: {
       lastUpdatedVessels: nowIso,
-      lastUpdatedCapacity: null,
+      lastUpdatedCapacity: capacityLastUpdatedIso,
       vesselsStale,
-      capacityStale: true,
+      capacityStale,
       serverTime: nowIso,
       fallback: {
         mode: fallbackMode,

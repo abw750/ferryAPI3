@@ -2,7 +2,7 @@
 console.log("[ferryClock] loaded");
 
 (function () {
-  const REFRESH_MS = 30_000;
+  const REFRESH_MS = 10_000;
   let currentRouteId = null;
   let refreshTimerId = null;
 
@@ -39,8 +39,8 @@ console.log("[ferryClock] loaded");
 
   // Dock arcs: radii match faceRenderer rings
   const DOCK_ARC_THICKNESS = 8;   // stroke width inside each white band
-  const R_DOCK_UPPER = 169;       // outer lane: midpoint of 160–178 band
-  const R_DOCK_LOWER = 154;       // inner lane: midpoint above numerals at ~148
+  const R_DOCK_UPPER = 174;       // outer lane: midpoint of 160–178 band
+  const R_DOCK_LOWER = 165;       // inner lane: midpoint above numerals at ~148
 
   // ---------- entry point ----------
   if (document.readyState === "loading") {
@@ -131,7 +131,7 @@ console.log("[ferryClock] loaded");
     const ns = "http://www.w3.org/2000/svg";
     const now = new Date();
     const dockArcsGroup = ensureDockArcGroup(layers);
-
+    const capacityGroup = ensureCapacityGroup(layers);
 
     // Helper: create SVG element
     function elNS(tag, attrs) {
@@ -179,7 +179,6 @@ function circleDot(x, y, r, fill) {
     opacity: "1"   // FORCE fully opaque dot
   });
 }
-
 
     // Draws a solid bar between x1 and x2 centered at (y) with given thickness.
     function barRect(x1, x2, y, thickness, fill) {
@@ -317,8 +316,8 @@ function circleDot(x, y, r, fill) {
       // Choose ring radius per lane
       const radius = laneKey === "upper" ? R_DOCK_UPPER : R_DOCK_LOWER;
 
-      // Anchor: minute hand at dockStartTime, local time
-      const localMinutes = startDate.getMinutes() % 60;
+      // Anchor: minute hand at dockStartTime, local time (minutes + seconds)
+      const localMinutes = (startDate.getMinutes() + startDate.getSeconds() / 60) % 60;
       const startAngle = (Math.PI / 30) * localMinutes - Math.PI / 2;
 
       // Span: fraction of full circle, clockwise
@@ -356,11 +355,183 @@ function circleDot(x, y, r, fill) {
           fill: "none",
           stroke: strokeColor,
           "stroke-width": String(DOCK_ARC_THICKNESS),
-          "stroke-linecap": STROKE_CAP,
+          "stroke-linecap":"butt",
         });
         arcsGroup.appendChild(path);
       }
     }
+
+        // ---- Capacity donuts (Cannon: auto spaces per terminal) ----
+
+    function ensureCapacityGroup(layers) {
+      const gOverlay = layers.overlay;
+      if (!gOverlay) return null;
+
+      let g = gOverlay.querySelector("#capacity-pies");
+      if (!g) {
+        g = elNS("g", { id: "capacity-pies" });
+        // Put pies above dock arcs but below lanes.
+        const dock = gOverlay.querySelector("#dock-arcs");
+        if (dock && dock.nextSibling) {
+          gOverlay.insertBefore(g, dock.nextSibling);
+        } else {
+          gOverlay.appendChild(g);
+        }
+      }
+      g.innerHTML = "";
+      return g;
+    }
+
+    // Capacity pies (Cannon: auto slots per terminal side)
+    function drawCapacityPies(group, state) {
+      if (!group || !state) return;
+      const cap = state.capacity || null;
+      if (!cap) return;
+
+      const maxW = cap.westMaxAuto;
+      const availW = cap.westAvailAuto;
+      const maxE = cap.eastMaxAuto;
+      const availE = cap.eastAvailAuto;
+
+      // Nothing usable → no pies
+      if ((maxW == null || maxW <= 0) && (maxE == null || maxE <= 0)) return;
+
+      const capacityStale = !!(state.meta && state.meta.capacityStale);
+
+      const rOuter = 20;           // outer radius
+      const strokeWidth = 6;       // donut thickness
+      const rInner = rOuter - strokeWidth;
+
+      // Reuse label geometry: labels at xWest/xEast on 9–3 axis
+      const barWidth = BAR_W;
+      const offset = barWidth / 2 + 50;
+      const xWestLabel = CX - offset;
+      const xEastLabel = CX + offset;
+      const yMid = CY;
+
+      // Pie centers: 1/3 of the way from label → center along 9–3 axis
+      const xWestPie = xWestLabel + (CX - xWestLabel) / 3;
+      const xEastPie = xEastLabel + (CX - xEastLabel) / 3;
+
+      drawOneCapacityPie(group, {
+        cx: xWestPie,
+        cy: yMid,
+        rOuter,
+        rInner,
+        avail: availW,
+        max: maxW,
+        side: "west",
+        capacityStale,
+      });
+
+      drawOneCapacityPie(group, {
+        cx: xEastPie,
+        cy: yMid,
+        rOuter,
+        rInner,
+        avail: availE,
+        max: maxE,
+        side: "east",
+        capacityStale,
+      });
+    }
+
+    function drawOneCapacityPie(group, opts) {
+      const {
+        cx, cy,
+        rOuter,
+        rInner,
+        avail,
+        max,
+        side,
+        capacityStale,
+      } = opts;
+
+      if (max == null || max <= 0) return;
+      if (avail == null || avail < 0) return;
+
+      // Fraction = available / max, so 100% available = full colored ring
+      let frac = avail / max;
+      if (!Number.isFinite(frac)) return;
+      if (frac < 0) frac = 0;
+      if (frac > 1) frac = 1;
+
+      // Direction-based color: west = BI→SEA (ltr), east = SEA→BI (rtl)
+      const scheme = side === "west" ? COLORS.ltr : COLORS.rtl;
+
+      const lowConfidence = !!capacityStale; // includes future synthetic "full capacity"
+      const strokeColor = lowConfidence ? scheme.light : scheme.strong;
+      const baseOpacity = lowConfidence ? 0.6 : 1.0;
+      const thickness = rOuter - rInner;     // donut thickness (expected 6px)
+      const rMid = rInner + thickness / 2;   // stroke radius
+
+      // 1) Neutral full grey track (always present)
+      const track = elNS("circle", {
+        cx: String(cx),
+        cy: String(cy),
+        r: String(rMid),
+        fill: "none",
+        stroke: COLORS.track,
+        "stroke-width": String(thickness),
+        opacity: String(baseOpacity),
+      });
+      group.appendChild(track);
+
+      // 2) Fraction arc (available fraction, in direction color)
+      if (frac > 0) {
+        if (frac >= 0.999) {
+          // 100% available (or numerically very close): draw a full colored ring
+          const ring = elNS("circle", {
+            cx: String(cx),
+            cy: String(cy),
+            r: String(rMid),
+            fill: "none",
+            stroke: strokeColor,
+            "stroke-width": String(thickness),
+            opacity: String(baseOpacity),
+          });
+          group.appendChild(ring);
+        } else {
+          // Partial circle: draw arc from 12 o'clock, clockwise
+          const startAngle = -Math.PI / 2; // 12 o'clock
+          const endAngle = startAngle + frac * Math.PI * 2;
+
+          const path = elNS("path", {
+            d: describeArcPath(cx, cy, rMid, startAngle, endAngle),
+            fill: "none",
+            stroke: strokeColor,
+            "stroke-width": String(thickness),
+            "stroke-linecap": "butt",
+            opacity: String(baseOpacity),
+          });
+          group.appendChild(path);
+        }
+      }
+
+      // 3) Inner white disc
+      const inner = elNS("circle", {
+        cx: String(cx),
+        cy: String(cy),
+        r: String(rInner - 1),
+        fill: "#ffffff",
+        opacity: "1",
+      });
+      group.appendChild(inner);
+
+      // 4) Center text = available slots
+      const label = elNS("text", {
+        x: String(cx),
+        y: String(cy+1),
+        "text-anchor": "middle",
+        "dominant-baseline": "middle",
+        "font-size": "10",
+        fill: "#111827",
+        opacity: String(baseOpacity),
+      });
+      label.textContent = String(Math.round(avail));
+      group.appendChild(label);
+    }
+
 
     if (!state || !state.lanes) {
       console.warn("[ferryClock] invalid state payload for overlay; drawing DEBUG only");
@@ -381,6 +552,9 @@ function circleDot(x, y, r, fill) {
     const route = state.route || {};
     const terminalIdWest = route.terminalIdWest;
     const terminalIdEast = route.terminalIdEast;
+    const capacity = state.capacity || null;
+    const capacityIsStale =
+      !!(state.meta && state.meta.capacityStale);
 
     console.log("[ferryClock] lanes:", { upperLane, lowerLane, terminalIdWest, terminalIdEast });
 
@@ -388,6 +562,10 @@ function circleDot(x, y, r, fill) {
     if (dockArcsGroup) {
       if (upperLane) drawDockArcForLane(dockArcsGroup, upperLane, "upper", now);
       if (lowerLane) drawDockArcForLane(dockArcsGroup, lowerLane, "lower", now);
+    }
+    // Capacity pies: west / east auto slots (Cannon pies)
+    if (capacityGroup) {
+      drawCapacityPies(capacityGroup, state);
     }
 
     // Dial-side WEST / EAST labels using same precedence as dotApp (Cannon: backend route drives labels)
@@ -403,58 +581,52 @@ function circleDot(x, y, r, fill) {
     if (labelWestText || labelEastText) {
       // Horizontal positions aligned with lane bars (Cannon: west=left, east=right)
       const barWidth = BAR_W;
-      const xL = CX - barWidth / 2;
-      const xR = CX + barWidth / 2;
-
-      // Vertically centered between upper and lower lanes
-      const yMid = CY;
-    if (labelWestText || labelEastText) {
-      // Horizontal positions aligned with lane bars (Cannon: west=left, east=right)
-      const barWidth = BAR_W;
 
       // Base radius from center to bar end, plus extra outward offset
       const offset = barWidth / 2 + 50; // 10px original + 50px outward
 
       // Symmetric positions on 9–3 axis
-      const xWest = CX - offset;
-      const xEast = CX + offset;
+      const xWestLabel = CX - offset;
+      const xEastLabel = CX + offset;
 
       // Vertically centered between upper and lower lanes (on 9–3 axis)
       const yMid = CY;
 
+      // WEST label
       if (labelWestText) {
-        const x = xWest;
+        const x = xWestLabel;
         const y = yMid;
         const t = elNS("text", {
           x: String(x),
           y: String(y),
-          "text-anchor": "middle",        // center justification
+          "text-anchor": "middle",
           "dominant-baseline": "middle",
+          "font-weight": "bold",
           "font-size": "12",
           fill: "#111",
-          transform: `rotate(-90 ${x} ${y})` // CCW 90° inward-facing
+          transform: `rotate(-90 ${x} ${y})`,
         });
         t.textContent = labelWestText;
         layers.top.appendChild(t);
       }
 
+      // EAST label
       if (labelEastText) {
-        const x = xEast;
+        const x = xEastLabel;
         const y = yMid;
         const t = elNS("text", {
           x: String(x),
           y: String(y),
-          "text-anchor": "middle",        // center justification
+          "text-anchor": "middle",
           "dominant-baseline": "middle",
+          "font-weight": "bold",
           "font-size": "12",
           fill: "#111",
-          transform: `rotate(90 ${x} ${y})` // CW 90° inward-facing
+          transform: `rotate(90 ${x} ${y})`,
         });
         t.textContent = labelEastText;
         layers.top.appendChild(t);
       }
-    }
-
     }
 
     // Map direction enum to "ltr"/"rtl" and scheme
