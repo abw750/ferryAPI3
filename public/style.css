@@ -80,15 +80,6 @@ h1 {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
-/* Phase-based flags: keep classes for semantics, but no color */
-.lane-dot.underway {
-  /* no background here */
-}
-
-.lane-dot.at-dock {
-  /* no background here */
-}
-
 /* Direction-based coloring: global and symmetric */
 .lane-dot.dir-west-east {
   background: #10b981; /* WEST → EAST = green */

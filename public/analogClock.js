@@ -7,15 +7,15 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
     if (!svg) { document.addEventListener("DOMContentLoaded", initClock, { once: true }); return; }
 
     // --- clock hands (hour, minute, second) ---
-    const HAND_COLOR = "#275dd2ff";        // hour + minute hands
-    const SECOND_HAND_COLOR = "#ef4444"; // second hand
-    const CENTER_DOT_COLOR = "#ff0000ff";  // center dot
+    const HAND_COLOR = "#1a3672ff";        // hour + minute hands
+    const SECOND_HAND_COLOR = "#747474ff"; // second hand
+    const CENTER_DOT_COLOR = "#040404ff";  // center dot
 
     const hands = ensure(svg, "g", { id: "clock-hands" });
 
     const hourHand = ensure(hands, "line", {
         id: "hand-hour",
-        x1: 200, y1: 200, x2: 200, y2: 105
+        x1: 200, y1: 200, x2: 200, y2: 90
     });
     hourHand.setAttribute(
         "style",
@@ -24,7 +24,7 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
 
     const minuteHand = ensure(hands, "line", {
         id: "hand-minute",
-        x1: 200, y1: 200, x2: 200, y2: 65
+        x1: 200, y1: 200, x2: 200, y2: 60
     });
     minuteHand.setAttribute(
         "style",

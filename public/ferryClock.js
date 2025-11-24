@@ -1,5 +1,4 @@
 // public/ferryClock.js — FerryClock3 analog overlay scaffold (with debug logging).
-console.log("[ferryClock] loaded");
 
 (function () {
   const REFRESH_MS = 10_000;
@@ -42,16 +41,12 @@ console.log("[ferryClock] loaded");
 
   // ---------- entry point ----------
   if (document.readyState === "loading") {
-    console.log("[ferryClock] document still loading, waiting for DOMContentLoaded");
     document.addEventListener("DOMContentLoaded", start, { once: true });
   } else {
-    console.log("[ferryClock] document readyState =", document.readyState, "→ starting immediately");
     start();
   }
 
   async function start() {
-    console.log("[ferryClock] start() called");
-
     const layers = await waitForFaceLayers();
     if (!layers) {
       console.warn("[ferryClock] getFaceLayers() not available after wait; aborting overlay.");
@@ -62,7 +57,6 @@ console.log("[ferryClock] loaded");
     try {
       console.log("[ferryClock] fetching routes from /api/routes");
       const routes = await fetchRoutes();
-      console.log("[ferryClock] routes payload:", routes);
 
       if (!routes || !routes.length) {
         console.warn("[ferryClock] no routes available from /api/routes");
@@ -72,8 +66,7 @@ console.log("[ferryClock] loaded");
 
       // Same behavior as dotApp for now: pick the first route.
       currentRouteId = routes[0].routeId;
-      console.log("[ferryClock] using routeId:", currentRouteId);
-
+      
       await refreshDotState(layers);
       refreshTimerId = setInterval(() => refreshDotState(layers), REFRESH_MS);
     } catch (err) {
@@ -103,7 +96,6 @@ console.log("[ferryClock] loaded");
     }
 
     const url = `/api/dot-state?routeId=${encodeURIComponent(currentRouteId)}`;
-    console.log("[ferryClock] fetching dot-state:", url);
 
     try {
       const res = await fetch(url);
@@ -111,7 +103,6 @@ console.log("[ferryClock] loaded");
         throw new Error("Dot API failed: HTTP " + res.status);
       }
       const state = await res.json();
-      console.log("[ferryClock] dot-state payload:", state);
 
       renderAnalogOverlay(state, layers);
     } catch (err) {
@@ -122,8 +113,6 @@ console.log("[ferryClock] loaded");
 
   // ---------- overlay rendering ----------
   function renderAnalogOverlay(state, layers) {
-    console.log("[ferryClock] renderAnalogOverlay()");
-
     layers.clear();
 
     const ns = "http://www.w3.org/2000/svg";
@@ -400,10 +389,6 @@ function circleDot(x, y, r, fill) {
     }
 
     const route = state.route || {};
-    const terminalIdWest = route.terminalIdWest;
-    const terminalIdEast = route.terminalIdEast;
-
-    console.log("[ferryClock] lanes:", { upperLane, lowerLane, terminalIdWest, terminalIdEast });
 
 // Dock arcs: outer ring for upper lane, inner ring for lower lane
 function renderDockArcOverlay(group, upperLane, lowerLane, now) {
@@ -423,8 +408,8 @@ function renderDockArcOverlay(group, upperLane, lowerLane, now) {
     }
   }
 
-  // Fallback to the original implementation in case the module is missing
-  // or fails. This restores previous behavior for now.
+  console.warn("[ferryClock] DockArcOverlay fallback path used");
+
   if (upperLane) drawDockArcForLane(group, upperLane, "upper", now);
   if (lowerLane) drawDockArcForLane(group, lowerLane, "lower", now);
 }
@@ -483,9 +468,9 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
           y: String(y),
           "text-anchor": "middle",
           "dominant-baseline": "middle",
-          "font-weight": "bold",
+          // "font-weight": "bold",
           "font-size": "12",
-          fill: "#111",
+          fill: "#2b2f9aff",
           transform: `rotate(-90 ${x} ${y})`,
         });
         t.textContent = labelWestText;
@@ -501,9 +486,9 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
           y: String(y),
           "text-anchor": "middle",
           "dominant-baseline": "middle",
-          "font-weight": "bold",
+          // "font-weight": "bold",
           "font-size": "12",
-          fill: "#111",
+          fill: "#2b2f9aff",
           transform: `rotate(90 ${x} ${y})`,
         });
         t.textContent = labelEastText;
@@ -549,7 +534,6 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
     }
 
     // Straight bar geometry
-
     function drawLaneRow(group, lane, yRow) {
       if (!lane) return;
       const dirKey = laneDir(lane);
@@ -559,115 +543,6 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
       const xL = CX - barWidth / 2;
       const xR = CX + barWidth / 2;
       const barY = (yRow < CY) ? (yRow + BAR_Y_OFFSET) : (yRow - BAR_Y_OFFSET);
-      const isTop = yRow < CY;
-
-      // ---- direction arrow on 12–6 axis (same geometry as FerryAPI2) ----
-      if (dirKey) {
-        const y0 = yRow;
-        const halfLen = 28;
-        const head = 8;
-        const arrowColor = underway ? scheme.strong : scheme.light;
-        const axL = CX - halfLen;
-        const axR = CX + halfLen;
-
-        group.appendChild(line(axL, y0, axR, y0, arrowColor, 3));
-
-        if (dirKey === "ltr") {
-          group.appendChild(arrowHead(axR, y0, 0, arrowColor, 3, head));
-          if (!underway) group.appendChild(circleDot(axL, y0, 2, arrowColor));
-        } else {
-          group.appendChild(arrowHead(axL, y0, Math.PI, arrowColor, 3, head));
-          if (!underway) group.appendChild(circleDot(axR, y0, 2, arrowColor));
-        }
-      } else {
-        addText(group, "--", CX, yRow, { fontSize: "14", fill: "#999" });
-      }
-
-      // ---- transit bar + moving dot (using dotPosition) ----
-      if (dirKey) {
-        // 1) always draw grey track (full route as a thick bar)
-        group.appendChild(barRect(xL, xR, barY, BAR_THICKNESS, COLORS.track));
-
-        // normalized progress from backend
-        let pos = lane.dotPosition;
-        if (typeof pos !== "number" || !isFinite(pos)) pos = 0;
-        pos = Math.max(0, Math.min(1, pos));
-
-        let frac;
-        if (dirKey === "rtl") {
-          // EAST → WEST = right→left
-          frac = 1 - pos;
-        } else {
-          // WEST → EAST = left→right
-          frac = pos;
-        }
-
-        const xp = xL + frac * (xR - xL);
-
-        if (underway) {
-          // colored progress segment (already-transited portion) - semi transparent
-          if (dirKey === "ltr") {
-            group.appendChild(barRect(xL, xp, barY, BAR_THICKNESS, scheme.strong));
-          } else {
-            group.appendChild(barRect(xR, xp, barY, BAR_THICKNESS, scheme.strong));
-          }
-
-          // moving dot at the leading edge - fully opaque, on top
-          group.appendChild(circleDot(xp, barY, 5.5, scheme.dot));
-          addShipIcon(group, xp, barY);
-
-        } else {
-          // docked: dot at origin side, showing next-transit direction color
-          const originIsWest = dirKey === "ltr";
-          const originX = originIsWest ? xL : xR;
-          group.appendChild(circleDot(originX, barY, 5.5, scheme.dot));
-          addShipIcon(group, originX, barY);
-        }
-
-        // ---- labels (simplified: sched at origin while docked, ETA at dest while underway) ----
-        const labelY = barY + LABEL_GAP;
-        const originX = dirKey === "ltr" ? xL : xR;
-        const destX   = dirKey === "ltr" ? xR : xL;
-        const originAnchor = dirKey === "ltr" ? "start" : "end";
-        const destAnchor   = dirKey === "ltr" ? "end" : "start";
-        const schedRaw = lane.scheduledDeparture || lane.scheduledDepartureTime || "";
-        const etaRaw   = lane.eta || lane.estimatedArrivalTime || "";
-        const sched = formatClockLabel(schedRaw);
-        const eta   = formatClockLabel(etaRaw);
-
-        if (!underway && sched) {
-          addText(group, sched, originX, labelY, {
-            anchor: originAnchor,
-            fontSize: "10",
-            fill: "#111"
-          });
-        } else if (underway && eta) {
-          addText(group, eta, destX, labelY, {
-            anchor: destAnchor,
-            fontSize: "10",
-            fill: "#111"
-          });
-        }
-      }
-
-      // ---- vessel name (same placement as FerryAPI2) ----
-      const name = (lane.vesselName && String(lane.vesselName).trim()) || "—";
-      const nameY = (yRow >= CY) ? (yRow - 12) : (yRow + 20);
-      addText(group, name, CX, nameY, {
-        fontSize: "12",
-        fill: "#222"
-      });
-    }
-    function drawLaneRow(group, lane, yRow) {
-      if (!lane) return;
-      const dirKey = laneDir(lane);
-      const underway = isUnderway(lane);
-      const scheme = dirKey === "rtl" ? COLORS.rtl : COLORS.ltr;
-      const barWidth = BAR_W;
-      const xL = CX - barWidth / 2;
-      const xR = CX + barWidth / 2;
-      const barY = (yRow < CY) ? (yRow + BAR_Y_OFFSET) : (yRow - BAR_Y_OFFSET);
-      const isTop = yRow < CY;
 
       // ---- direction arrow on 12–6 axis ----
       if (dirKey) {
@@ -793,12 +668,13 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
       }
 
       // If the module signaled success, skip fallback to avoid double-drawing.
-      // If the module signaled success, skip fallback to avoid double-drawing.
       if (window.__LANE_OVERLAY_OK__ === true) {
         return;
       }
 
       // Fallback / baseline: original implementation.
+      console.warn("[ferryClock] LaneOverlay fallback path used");
+
       if (upperLane) {
         drawLaneRow(topGroup, upperLane, 95);
       }
@@ -831,18 +707,15 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
   function waitForFaceLayers() {
     return new Promise(resolve => {
       if (typeof window.getFaceLayers === "function") {
-        console.log("[ferryClock] getFaceLayers() already present");
         return resolve(window.getFaceLayers());
       }
 
       let attempts = 0;
       const maxAttempts = 50;
-      console.log("[ferryClock] waiting for getFaceLayers() ...");
       const iv = setInterval(() => {
         attempts++;
         if (typeof window.getFaceLayers === "function") {
           clearInterval(iv);
-          console.log("[ferryClock] getFaceLayers() became available after", attempts, "checks");
           resolve(window.getFaceLayers());
         } else if (attempts >= maxAttempts) {
           clearInterval(iv);

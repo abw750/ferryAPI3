@@ -59,7 +59,7 @@
       G.appendChild(inner);
 
       // hour numerals 1–12 inside inner rim
-      const numeralRadius = 148; // slightly inside inner ring (r=160)
+      const numeralRadius = 146; // slightly inside inner ring (r=160)
       for (let h = 1; h <= 12; h++) {
         const angle = (Math.PI / 6) * (h - 3); // 3 o'clock at 0 rad, 12 at -90°
         const x = C.cx + numeralRadius * Math.cos(angle);
@@ -67,11 +67,11 @@
 
         const text = document.createElementNS(ns, "text");
         text.setAttribute("x", String(x+1));
-        text.setAttribute("y", String(y+1));
+        text.setAttribute("y", String(y+2));
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("dominant-baseline", "middle");
         text.setAttribute("font-size", "14");
-        text.setAttribute("font-weight", "bold");
+        text.setAttribute("font-weight", "normal");
         text.textContent = String(h);
         G.appendChild(text);
       }
