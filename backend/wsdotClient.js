@@ -139,6 +139,63 @@ async function getNormalizedVessels() {
   const url = `${WSDOT_BASE}/vessellocations?apiaccesscode=${encodeURIComponent(
     apiKey
   )}`;
+  // ---------------------------------------------------------------------------
+  // Terminals API: terminal sailingspace (Cannon Sections: Status_TerminalSpaces)
+  // ---------------------------------------------------------------------------
+  //
+  // Raw shape per WSDOT docs (JSON):
+  //   [
+  //     {
+  //       TerminalID,
+  //       TerminalSubjectID,
+  //       ...,
+  //       DepartingSpaces: [
+  //         {
+  //           Departure, IsCancelled, VesselID, VesselName, MaxSpaceCount,
+  //           SpaceForArrivalTerminals: [
+  //             {
+  //               TerminalID, TerminalName, VesselID, VesselName,
+  //               DisplayDriveUpSpace, DriveUpSpaceCount, MaxSpaceCount, ...
+  //             },
+  //             ...
+  //           ]
+  //         },
+  //         ...
+  //       ],
+  //       IsNoFareCollected, NoFareCollectedMsg
+  //     },
+  //     ...
+  //   ]
+  //
+  // For capacity donuts we only care about:
+  //   - TerminalID (outer key)
+  //   - For each DepartingSpaces[*].SpaceForArrivalTerminals[*]:
+  //       - TerminalID
+  //       - DriveUpSpaceCount
+  //       - MaxSpaceCount
+  //
+  // We keep normalization minimal here and push Cannon’s West/East aggregation
+  // into dotState, so this function remains a generic client.
+
+  async function fetchTerminalSpaces() {
+    const apiKey = requireApiKey();
+    const url =
+      `https://www.wsdot.wa.gov/Ferries/API/Terminals/rest/terminalsailingspace` +
+      `?apiaccesscode=${encodeURIComponent(apiKey)}`;
+
+    const res = await axios.get(url, {
+      timeout: 8000,
+      headers: { Accept: "application/json" },
+    });
+
+    const data = res && res.data;
+    if (!Array.isArray(data)) {
+      throw new Error("Unexpected terminalsailingspace payload (expected array)");
+    }
+
+    // Return raw rows; dotState will apply route/terminal filters and aggregation.
+    return data;
+  }
 
   const res = await axios.get(url, {
     timeout: 8000,
@@ -148,12 +205,67 @@ async function getNormalizedVessels() {
   if (!res || !Array.isArray(res.data)) {
     throw new Error("Unexpected vessellocations payload");
   }
-
   return res.data.map(normalizeVessel).filter(Boolean);
+}
+// ---------------------------------------------------------------------------
+// Terminals API: terminal sailingspace (Cannon capacity pies)
+// ---------------------------------------------------------------------------
+//
+// Raw shape per WSDOT docs (JSON):
+//   [
+//     {
+//       TerminalID,
+//       ...,
+//       DepartingSpaces: [
+//         {
+//           Departure, IsCancelled, VesselID, VesselName, MaxSpaceCount,
+//           SpaceForArrivalTerminals: [
+//             {
+//               TerminalID, TerminalName, VesselID, VesselName,
+//               DriveUpSpaceCount, MaxSpaceCount, ...
+//             },
+//             ...
+//           ]
+//         },
+//         ...
+//       ]
+//     },
+//     ...
+//   ]
+//
+// For capacity donuts we only care about:
+//   - TerminalID (outer key)
+//   - For each DepartingSpaces[*].SpaceForArrivalTerminals[*]:
+//       - TerminalID
+//       - DriveUpSpaceCount
+//       - MaxSpaceCount
+//
+// We keep normalization minimal here and push Cannon’s West/East aggregation
+// into dotState, so this function remains a generic client.
+
+async function fetchTerminalSpaces() {
+  const apiKey = requireApiKey();
+  const url =
+    `https://www.wsdot.wa.gov/Ferries/API/Terminals/rest/terminalsailingspace` +
+    `?apiaccesscode=${encodeURIComponent(apiKey)}`;
+
+  const res = await axios.get(url, {
+    timeout: 8000,
+    headers: { Accept: "application/json" },
+  });
+
+  const data = res && res.data;
+  if (!Array.isArray(data)) {
+    throw new Error("Unexpected terminalsailingspace payload (expected array)");
+  }
+
+  // Return raw rows; dotState will apply route/terminal filters and aggregation.
+  return data;
 }
 
 module.exports = {
   getNormalizedVessels,
   fetchDailySchedule,
-  fetchDailyScheduleRaw, 
+  fetchDailyScheduleRaw,
+  fetchTerminalSpaces,
 };

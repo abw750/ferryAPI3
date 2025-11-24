@@ -66,11 +66,12 @@
         const y = C.cy + numeralRadius * Math.sin(angle);
 
         const text = document.createElementNS(ns, "text");
-        text.setAttribute("x", String(x));
-        text.setAttribute("y", String(y));
+        text.setAttribute("x", String(x+1));
+        text.setAttribute("y", String(y+1));
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("dominant-baseline", "middle");
         text.setAttribute("font-size", "14");
+        text.setAttribute("font-weight", "bold");
         text.textContent = String(h);
         G.appendChild(text);
       }
@@ -109,7 +110,7 @@
 
         const label = document.createElementNS(ns, "text");
         label.setAttribute("x", String(x));
-        label.setAttribute("y", String(y));
+        label.setAttribute("y", String(y+1));
         label.setAttribute("text-anchor", "middle");
         label.setAttribute("dominant-baseline", "middle");
         label.setAttribute("font-size", "10");
