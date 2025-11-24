@@ -862,12 +862,29 @@ if (scheduleError || (!scheduledUpper && !scheduledLower)) {
 
   // ---- Capacity for west/east terminals (Cannon capacity pies, hybrid rule) ----
   if (terminalsPayload && Array.isArray(terminalsPayload)) {
+    // Choose the scheduled lane for each side based on departure terminal,
+    // not lane position (upper/lower).
+    let scheduledWestLane = null;
+    let scheduledEastLane = null;
+
+    if (scheduledUpper && scheduledUpper.departureTerminalId === terminalIdWest) {
+      scheduledWestLane = scheduledUpper;
+    } else if (scheduledLower && scheduledLower.departureTerminalId === terminalIdWest) {
+      scheduledWestLane = scheduledLower;
+    }
+
+    if (scheduledUpper && scheduledUpper.departureTerminalId === terminalIdEast) {
+      scheduledEastLane = scheduledUpper;
+    } else if (scheduledLower && scheduledLower.departureTerminalId === terminalIdEast) {
+      scheduledEastLane = scheduledLower;
+    }
+
     const westResult = deriveCapacityForSide({
       routeId: route.routeId,
       side: "west",
       terminalIdSide: terminalIdWest,
       terminalIdOther: terminalIdEast,
-      scheduledLane: scheduledUpper || null,
+      scheduledLane: scheduledWestLane,
       terminalsPayload,
       now,
     });
@@ -877,10 +894,11 @@ if (scheduleError || (!scheduledUpper && !scheduledLower)) {
       side: "east",
       terminalIdSide: terminalIdEast,
       terminalIdOther: terminalIdWest,
-      scheduledLane: scheduledLower || null,
+      scheduledLane: scheduledEastLane,
       terminalsPayload,
       now,
     });
+
 
     const west = westResult.data;
     const east = eastResult.data;

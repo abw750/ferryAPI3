@@ -177,26 +177,6 @@ async function getNormalizedVessels() {
   // We keep normalization minimal here and push Cannon’s West/East aggregation
   // into dotState, so this function remains a generic client.
 
-  async function fetchTerminalSpaces() {
-    const apiKey = requireApiKey();
-    const url =
-      `https://www.wsdot.wa.gov/Ferries/API/Terminals/rest/terminalsailingspace` +
-      `?apiaccesscode=${encodeURIComponent(apiKey)}`;
-
-    const res = await axios.get(url, {
-      timeout: 8000,
-      headers: { Accept: "application/json" },
-    });
-
-    const data = res && res.data;
-    if (!Array.isArray(data)) {
-      throw new Error("Unexpected terminalsailingspace payload (expected array)");
-    }
-
-    // Return raw rows; dotState will apply route/terminal filters and aggregation.
-    return data;
-  }
-
   const res = await axios.get(url, {
     timeout: 8000,
     headers: { Accept: "application/json" },

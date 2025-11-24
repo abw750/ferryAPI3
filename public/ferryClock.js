@@ -6,13 +6,11 @@ console.log("[ferryClock] loaded");
   let currentRouteId = null;
   let refreshTimerId = null;
 
-  // --- clock geometry (match FerryAPI2) ---
+  // --- clock geometry ---
   const CX = 200;
   const CY = 200;
-  const RIM_OUTER = 182;
-  const RIM_INNER = Math.round(RIM_OUTER * 0.56);
 
-  // color palette (match FerryAPI2)
+  // color palette
   const COLOR_STRONG_LTR = "#1c9560a7"; // BI → SEA transit segment (semi transparent)
   const COLOR_STRONG_RTL = "#ff2121b9"; // SEA → BI transit segment (semi transparent)
   const COLOR_TRACK       = "#e5e7eba0"; // grey track (semi transparent)
@@ -122,7 +120,7 @@ console.log("[ferryClock] loaded");
     }
   }
 
-  // ---------- overlay rendering (match FerryAPI2 lane geometry) ----------
+  // ---------- overlay rendering ----------
   function renderAnalogOverlay(state, layers) {
     console.log("[ferryClock] renderAnalogOverlay()");
 
@@ -274,6 +272,10 @@ function circleDot(x, y, r, fill) {
       ].join(" ");
     }
 
+    // Expose for external overlay modules (capacity pies) while keeping
+    // the implementation owned here.
+    window.FerryDescribeArcPath = describeArcPath;
+
     // Ensure a stable group for dock arcs; keep them behind top/bottom rows.
     function ensureDockArcGroup(layers) {
       const gOverlay = layers.overlay;
@@ -382,163 +384,11 @@ function circleDot(x, y, r, fill) {
       return g;
     }
 
-    // Capacity pies (Cannon: auto slots per terminal side)
-    function drawCapacityPies(group, state) {
-      if (!group || !state) return;
-      const cap = state.capacity || null;
-      if (!cap) return;
-
-      const maxW = cap.westMaxAuto;
-      const availW = cap.westAvailAuto;
-      const maxE = cap.eastMaxAuto;
-      const availE = cap.eastAvailAuto;
-
-      // Nothing usable → no pies
-      if ((maxW == null || maxW <= 0) && (maxE == null || maxE <= 0)) return;
-
-      const capacityStale = !!(state.meta && state.meta.capacityStale);
-
-      const rOuter = 20;           // outer radius
-      const strokeWidth = 6;       // donut thickness
-      const rInner = rOuter - strokeWidth;
-
-      // Reuse label geometry: labels at xWest/xEast on 9–3 axis
-      const barWidth = BAR_W;
-      const offset = barWidth / 2 + 50;
-      const xWestLabel = CX - offset;
-      const xEastLabel = CX + offset;
-      const yMid = CY;
-
-      // Pie centers: 1/3 of the way from label → center along 9–3 axis
-      const xWestPie = xWestLabel + (CX - xWestLabel) / 3;
-      const xEastPie = xEastLabel + (CX - xEastLabel) / 3;
-
-      drawOneCapacityPie(group, {
-        cx: xWestPie,
-        cy: yMid,
-        rOuter,
-        rInner,
-        avail: availW,
-        max: maxW,
-        side: "west",
-        capacityStale,
-      });
-
-      drawOneCapacityPie(group, {
-        cx: xEastPie,
-        cy: yMid,
-        rOuter,
-        rInner,
-        avail: availE,
-        max: maxE,
-        side: "east",
-        capacityStale,
-      });
-    }
-
-    function drawOneCapacityPie(group, opts) {
-      const {
-        cx, cy,
-        rOuter,
-        rInner,
-        avail,
-        max,
-        side,
-        capacityStale,
-      } = opts;
-
-      if (max == null || max <= 0) return;
-      if (avail == null || avail < 0) return;
-
-      // Fraction = available / max, so 100% available = full colored ring
-      let frac = avail / max;
-      if (!Number.isFinite(frac)) return;
-      if (frac < 0) frac = 0;
-      if (frac > 1) frac = 1;
-
-      // Direction-based color: west = BI→SEA (ltr), east = SEA→BI (rtl)
-      const scheme = side === "west" ? COLORS.ltr : COLORS.rtl;
-
-      const lowConfidence = !!capacityStale; // includes future synthetic "full capacity"
-      const strokeColor = lowConfidence ? scheme.light : scheme.strong;
-      const baseOpacity = lowConfidence ? 0.6 : 1.0;
-      const thickness = rOuter - rInner;     // donut thickness (expected 6px)
-      const rMid = rInner + thickness / 2;   // stroke radius
-
-      // 1) Neutral full grey track (always present)
-      const track = elNS("circle", {
-        cx: String(cx),
-        cy: String(cy),
-        r: String(rMid),
-        fill: "none",
-        stroke: COLORS.track,
-        "stroke-width": String(thickness),
-        opacity: String(baseOpacity),
-      });
-      group.appendChild(track);
-
-      // 2) Fraction arc (available fraction, in direction color)
-      if (frac > 0) {
-        if (frac >= 0.999) {
-          // 100% available (or numerically very close): draw a full colored ring
-          const ring = elNS("circle", {
-            cx: String(cx),
-            cy: String(cy),
-            r: String(rMid),
-            fill: "none",
-            stroke: strokeColor,
-            "stroke-width": String(thickness),
-            opacity: String(baseOpacity),
-          });
-          group.appendChild(ring);
-        } else {
-          // Partial circle: draw arc from 12 o'clock, clockwise
-          const startAngle = -Math.PI / 2; // 12 o'clock
-          const endAngle = startAngle + frac * Math.PI * 2;
-
-          const path = elNS("path", {
-            d: describeArcPath(cx, cy, rMid, startAngle, endAngle),
-            fill: "none",
-            stroke: strokeColor,
-            "stroke-width": String(thickness),
-            "stroke-linecap": "butt",
-            opacity: String(baseOpacity),
-          });
-          group.appendChild(path);
-        }
-      }
-
-      // 3) Inner white disc
-      const inner = elNS("circle", {
-        cx: String(cx),
-        cy: String(cy),
-        r: String(rInner - 1),
-        fill: "#ffffff",
-        opacity: "1",
-      });
-      group.appendChild(inner);
-
-      // 4) Center text = available slots
-      const label = elNS("text", {
-        x: String(cx),
-        y: String(cy+1),
-        "text-anchor": "middle",
-        "dominant-baseline": "middle",
-        "font-size": "10",
-        fill: "#111827",
-        opacity: String(baseOpacity),
-      });
-      label.textContent = String(Math.round(avail));
-      group.appendChild(label);
-    }
-
-
     if (!state || !state.lanes) {
       console.warn("[ferryClock] invalid state payload for overlay; drawing DEBUG only");
       addText(layers.top, "NO STATE", CX, CY);
       return;
     }
-
 
     const upperLane = state.lanes.upper || null;
     const lowerLane = state.lanes.lower || null;
@@ -552,20 +402,52 @@ function circleDot(x, y, r, fill) {
     const route = state.route || {};
     const terminalIdWest = route.terminalIdWest;
     const terminalIdEast = route.terminalIdEast;
-    const capacity = state.capacity || null;
-    const capacityIsStale =
-      !!(state.meta && state.meta.capacityStale);
 
     console.log("[ferryClock] lanes:", { upperLane, lowerLane, terminalIdWest, terminalIdEast });
 
-    // Dock arcs: outer ring for upper lane, inner ring for lower lane
-    if (dockArcsGroup) {
-      if (upperLane) drawDockArcForLane(dockArcsGroup, upperLane, "upper", now);
-      if (lowerLane) drawDockArcForLane(dockArcsGroup, lowerLane, "lower", now);
+// Dock arcs: outer ring for upper lane, inner ring for lower lane
+function renderDockArcOverlay(group, upperLane, lowerLane, now) {
+  if (!group) return;
+
+  if (window.FerryDockArcOverlay &&
+      typeof window.FerryDockArcOverlay.render === "function") {
+    try {
+      window.FerryDockArcOverlay.render({
+        group,
+        upperLane,
+        lowerLane,
+        now,
+      });
+    } catch (err) {
+      console.error("[ferryClock] FerryDockArcOverlay.render error:", err);
     }
-    // Capacity pies: west / east auto slots (Cannon pies)
+  }
+
+  // Fallback to the original implementation in case the module is missing
+  // or fails. This restores previous behavior for now.
+  if (upperLane) drawDockArcForLane(group, upperLane, "upper", now);
+  if (lowerLane) drawDockArcForLane(group, lowerLane, "lower", now);
+}
+
+renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
+
+
+    // Capacity pies: west / east auto slots (Cannon pies) - render from capacityOverlay.js
+    function renderCapacityOverlay(capacityGroup, state) {
+      if (!capacityGroup) return;
+
+      if (window.FerryCapacityOverlay &&
+          typeof window.FerryCapacityOverlay.render === "function") {
+        try {
+          window.FerryCapacityOverlay.render({ group: capacityGroup, state });
+        } catch (err) {
+          console.error("[ferryClock] FerryCapacityOverlay.render error:", err);
+        }
+      }
+    }
+    
     if (capacityGroup) {
-      drawCapacityPies(capacityGroup, state);
+      renderCapacityOverlay(capacityGroup, state);
     }
 
     // Dial-side WEST / EAST labels using same precedence as dotApp (Cannon: backend route drives labels)
@@ -642,11 +524,33 @@ function circleDot(x, y, r, fill) {
       return phase === "UNDERWAY";
     }
 
-    // Straight bar geometry from FerryAPI2
+    // Provide shared geometry + helpers to laneOverlay.js
+    if (window.FerryLaneOverlay &&
+        typeof window.FerryLaneOverlay.injectHelpers === "function") {
+      try {
+        window.FerryLaneOverlay.injectHelpers({
+          CX,
+          CY,
+          laneDir,
+          isUnderway,
+          barRect,
+          circleDot,
+          addShipIcon,
+          formatClockLabel,
+          COLORS,
+          BAR_W,
+          BAR_THICKNESS,
+          BAR_Y_OFFSET,
+          LABEL_GAP,
+        });
+      } catch (err) {
+        console.error("[ferryClock] FerryLaneOverlay.injectHelpers error:", err);
+      }
+    }
+
+    // Straight bar geometry
+
     function drawLaneRow(group, lane, yRow) {
-
-      console.log("BAR_THICKNESS =", BAR_THICKNESS);
-
       if (!lane) return;
       const dirKey = laneDir(lane);
       const underway = isUnderway(lane);
@@ -754,31 +658,157 @@ function circleDot(x, y, r, fill) {
         fill: "#222"
       });
     }
+    function drawLaneRow(group, lane, yRow) {
+      if (!lane) return;
+      const dirKey = laneDir(lane);
+      const underway = isUnderway(lane);
+      const scheme = dirKey === "rtl" ? COLORS.rtl : COLORS.ltr;
+      const barWidth = BAR_W;
+      const xL = CX - barWidth / 2;
+      const xR = CX + barWidth / 2;
+      const barY = (yRow < CY) ? (yRow + BAR_Y_OFFSET) : (yRow - BAR_Y_OFFSET);
+      const isTop = yRow < CY;
 
-    // UPPER lane: use y = 95 (as in FerryAPI2)
-    if (upperLane) {
-    // UNCOMMENT BEOLOW FOR DEBUG TEXT INSTEAD OF LANE
-    //   const dir = laneDir(upperLane);
-    //   const phase = (upperLane.phase || "UNKNOWN").toUpperCase();
-    //   const name = upperLane.vesselName || "Unknown vessel";
-    //   const arrow = dir === "rtl" ? "←" : "→";
+      // ---- direction arrow on 12–6 axis ----
+      if (dirKey) {
+        const y0 = yRow;
+        const halfLen = 28;
+        const head = 8;
+        const arrowColor = underway ? scheme.strong : scheme.light;
+        const axL = CX - halfLen;
+        const axR = CX + halfLen;
 
-    //   addText(layers.top, `UPPER: ${name} ${arrow} (${phase})`, CX, 52);
-      drawLaneRow(layers.top, upperLane, 95, terminalIdWest, terminalIdEast);
+        group.appendChild(line(axL, y0, axR, y0, arrowColor, 3));
+
+        if (dirKey === "ltr") {
+          group.appendChild(arrowHead(axR, y0, 0, arrowColor, 3, head));
+          if (!underway) group.appendChild(circleDot(axL, y0, 2, arrowColor));
+        } else {
+          group.appendChild(arrowHead(axL, y0, Math.PI, arrowColor, 3, head));
+          if (!underway) group.appendChild(circleDot(axR, y0, 2, arrowColor));
+        }
+      } else {
+        addText(group, "--", CX, yRow, { fontSize: "14", fill: "#999" });
+      }
+
+      // ---- transit bar + moving dot (using dotPosition) ----
+      if (dirKey) {
+        // 1) always draw grey track (full route as a thick bar)
+        group.appendChild(barRect(xL, xR, barY, BAR_THICKNESS, COLORS.track));
+
+        // normalized progress from backend
+        let pos = lane.dotPosition;
+        if (typeof pos !== "number" || !isFinite(pos)) pos = 0;
+        pos = Math.max(0, Math.min(1, pos));
+
+        let frac;
+        if (dirKey === "rtl") {
+          // EAST → WEST = right→left
+          frac = 1 - pos;
+        } else {
+          // WEST → EAST = left→right
+          frac = pos;
+        }
+
+        const xp = xL + frac * (xR - xL);
+
+        if (underway) {
+          // colored progress segment (already-transited portion) - semi transparent
+          if (dirKey === "ltr") {
+            group.appendChild(barRect(xL, xp, barY, BAR_THICKNESS, scheme.strong));
+          } else {
+            group.appendChild(barRect(xR, xp, barY, BAR_THICKNESS, scheme.strong));
+          }
+
+          // moving dot at the leading edge - fully opaque, on top
+          group.appendChild(circleDot(xp, barY, 5.5, scheme.dot));
+          addShipIcon(group, xp, barY);
+
+        } else {
+          // docked: dot at origin side, showing next-transit direction color
+          const originIsWest = dirKey === "ltr";
+          const originX = originIsWest ? xL : xR;
+          group.appendChild(circleDot(originX, barY, 5.5, scheme.dot));
+          addShipIcon(group, originX, barY);
+        }
+
+        // ---- labels (simplified: sched at origin while docked, ETA at dest while underway) ----
+        const labelY = barY + LABEL_GAP;
+        const originX = dirKey === "ltr" ? xL : xR;
+        const destX   = dirKey === "ltr" ? xR : xL;
+        const originAnchor = dirKey === "ltr" ? "start" : "end";
+        const destAnchor   = dirKey === "ltr" ? "end" : "start";
+        const schedRaw = lane.scheduledDeparture || lane.scheduledDepartureTime || "";
+        const etaRaw   = lane.eta || lane.estimatedArrivalTime || "";
+        const sched = formatClockLabel(schedRaw);
+        const eta   = formatClockLabel(etaRaw);
+
+        if (!underway && sched) {
+          addText(group, sched, originX, labelY, {
+            anchor: originAnchor,
+            fontSize: "10",
+            fill: "#111"
+          });
+        } else if (underway && eta) {
+          addText(group, eta, destX, labelY, {
+            anchor: destAnchor,
+            fontSize: "10",
+            fill: "#111"
+          });
+        }
+      }
+
+      // ---- vessel name  ----
+      const name = (lane.vesselName && String(lane.vesselName).trim()) || "—";
+      const nameY = (yRow >= CY) ? (yRow - 12) : (yRow + 20);
+      addText(group, name, CX, nameY, {
+        fontSize: "12",
+        fill: "#222"
+      });
     }
 
-    // LOWER lane: use y = 305 (as in FerryAPI2)
-    if (lowerLane) {
-    // UNCOMMENT BEOLOW FOR DEBUG TEXT INSTEAD OF LANE     
-        //   const dir = laneDir(lowerLane);
-    //   const phase = (lowerLane.phase || "UNKNOWN").toUpperCase();
-    //   const name = lowerLane.vesselName || "Unknown vessel";
-    //   const arrow = dir === "rtl" ? "←" : "→";
+    function renderLaneOverlay(topGroup, bottomGroup, upperLane, lowerLane, now) {
+      if (!topGroup && !bottomGroup) return;
 
-    //   addText(layers.bottom, `LOWER: ${name} ${arrow} (${phase})`, CX, 348);
-      drawLaneRow(layers.bottom, lowerLane, 305, terminalIdWest, terminalIdEast);
+      // Allow external module to participate.
+      if (window.FerryLaneOverlay &&
+          typeof window.FerryLaneOverlay.render === "function") {
+        try {
+          // Reset sentinel before each render cycle.
+          window.__LANE_OVERLAY_OK__ = false;
 
+          window.FerryLaneOverlay.render({
+            topGroup,
+            bottomGroup,
+            upperLane,
+            lowerLane,
+            now,
+            CX,
+            CY,
+          });
+        } catch (err) {
+          console.error("[ferryClock] FerryLaneOverlay.render error:", err);
+          window.__LANE_OVERLAY_OK__ = false;
+        }
+      }
+
+      // If the module signaled success, skip fallback to avoid double-drawing.
+      // If the module signaled success, skip fallback to avoid double-drawing.
+      if (window.__LANE_OVERLAY_OK__ === true) {
+        return;
+      }
+
+      // Fallback / baseline: original implementation.
+      if (upperLane) {
+        drawLaneRow(topGroup, upperLane, 95);
+      }
+
+      if (lowerLane) {
+        drawLaneRow(bottomGroup, lowerLane, 305);
+      }
     }
+
+    renderLaneOverlay(layers.top, layers.bottom, upperLane, lowerLane, now);
   }
 
   // Draws a central debug label if we fail early.

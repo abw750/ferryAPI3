@@ -7,11 +7,45 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
     if (!svg) { document.addEventListener("DOMContentLoaded", initClock, { once: true }); return; }
 
     // --- clock hands (hour, minute, second) ---
+    const HAND_COLOR = "#275dd2ff";        // hour + minute hands
+    const SECOND_HAND_COLOR = "#ef4444"; // second hand
+    const CENTER_DOT_COLOR = "#ff0000ff";  // center dot
+
     const hands = ensure(svg, "g", { id: "clock-hands" });
-    const hourHand   = ensure(hands, "line", { id: "hand-hour",   x1: 200, y1: 200, x2: 200, y2: 105 });
-    const minuteHand = ensure(hands, "line", { id: "hand-minute", x1: 200, y1: 200, x2: 200, y2: 65  });
-    const secondHand = ensure(hands, "line", { id: "hand-second", x1: 200, y1: 200, x2: 200, y2: 23  });
-    ensure(hands, "circle", { cx: 200, cy: 200, r: 4 });
+
+    const hourHand = ensure(hands, "line", {
+        id: "hand-hour",
+        x1: 200, y1: 200, x2: 200, y2: 105
+    });
+    hourHand.setAttribute(
+        "style",
+        `stroke:${HAND_COLOR};stroke-width:4;stroke-linecap:round`
+    );
+
+    const minuteHand = ensure(hands, "line", {
+        id: "hand-minute",
+        x1: 200, y1: 200, x2: 200, y2: 65
+    });
+    minuteHand.setAttribute(
+        "style",
+        `stroke:${HAND_COLOR};stroke-width:2.5;stroke-linecap:round`
+    );
+
+    const secondHand = ensure(hands, "line", {
+        id: "hand-second",
+        x1: 200, y1: 200, x2: 200, y2: 23
+    });
+    secondHand.setAttribute(
+        "style",
+        `stroke:${SECOND_HAND_COLOR};stroke-width:1.5;stroke-linecap:round`
+    );
+
+    // Center dot
+    const centerDot = ensure(hands, "circle", {
+        id: "clock-center",
+        cx: 200, cy: 200, r: 4
+    });
+    centerDot.setAttribute("style", `fill:${CENTER_DOT_COLOR}`);
 
     function setRot(node, deg) {
         node.setAttribute("transform", `rotate(${deg} 200 200)`);

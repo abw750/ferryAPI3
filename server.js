@@ -5,7 +5,10 @@ const axios = require("axios");
 
 const { getRoutes } = require("./backend/routeConfig");
 const { buildDotState } = require("./backend/dotState");
-const { fetchDailyScheduleRaw } = require("./backend/wsdotClient");
+const {
+  fetchDailyScheduleRaw,
+  fetchTerminalSpaces,
+} = require("./backend/wsdotClient");
 
 
 // Polyfills (harmless on newer Node; required on 14)
@@ -132,6 +135,41 @@ app.get("/api/debug/schedule", async (req, res) => {
     res.status(500).json({ error: err.message || String(err) });
   }
 });
+/// DEBUG: compare dot-state capacity vs raw terminalsailingspace
+app.get("/api/debug/capacity", async (req, res) => {
+  try {
+    const routeId = Number(req.query.routeId) || 5;
+
+    const [state, rawSpaces] = await Promise.all([
+      buildDotState(routeId),
+      fetchTerminalSpaces(),
+    ]);
+
+    const capacityFromDotState = state && state.capacity ? state.capacity : null;
+    const capacityMeta =
+      state && state.meta
+        ? {
+            capacityStale: !!state.meta.capacityStale,
+            lastUpdatedCapacity: state.meta.lastUpdatedCapacity || null,
+          }
+        : null;
+
+              // Filter to only Seattle (7) and Bainbridge Island (3)
+      const filtered = Array.isArray(rawSpaces)
+        ? rawSpaces.filter(r => r.TerminalID === 3 || r.TerminalID === 7)
+        : [];
+
+    res.json({
+      routeId,
+      capacityFromDotState,
+      capacityMeta,
+      rawSample: filtered,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || String(err) });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`FerryAPI3 listening on http://localhost:${PORT}`);
