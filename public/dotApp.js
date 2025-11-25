@@ -61,6 +61,57 @@ async function refreshDotState() {
   }
 }
 
+function classifyLaneStatusDot(lane, fallbackStatus) {
+  const fb = (fallbackStatus || "").toLowerCase();
+
+  // Backend explicitly says "missing" → hide.
+  if (fb === "missing") {
+    return "missing";
+  }
+
+  // No lane object at all.
+  if (!lane) {
+    return "missing";
+  }
+
+  const hasRealVessel =
+    lane.vesselId != null &&
+    lane.vesselName &&
+    String(lane.vesselName).trim().toLowerCase() !== "unknown";
+
+  const phase = (lane.phase || "").toUpperCase();
+  const hasTiming =
+    !!(lane.scheduledDeparture ||
+       lane.scheduledDepartureTime ||
+       lane.eta ||
+       lane.estimatedArrivalTime ||
+       lane.currentArrivalTime);
+
+  const looksNullSkeleton =
+    !hasRealVessel &&
+    (!phase || phase === "UNKNOWN") &&
+    !hasTiming;
+
+  if (looksNullSkeleton) {
+    return "missing";
+  }
+
+  if (lane.isStale) {
+    return "stale";
+  }
+
+  return "live";
+}
+
+function normalizeLaneForRenderDot(lane, fallbackStatus) {
+  const status = classifyLaneStatusDot(lane, fallbackStatus);
+  if (status === "missing") {
+    return null;
+  }
+  // live and stale both render; visual styling can distinguish later.
+  return lane;
+}
+
 function renderDotState(state) {
   if (!state || !state.route || !state.lanes) {
     canvasEl.textContent = "Invalid state.";
@@ -93,15 +144,26 @@ function renderDotState(state) {
   const lowerStatus =
     state.meta?.fallback?.lanes?.lower || null;
 
-  if (state.lanes.upper) {
+  const rawUpper = state.lanes.upper || null;
+  const rawLower = state.lanes.lower || null;
+
+  const upperLane = normalizeLaneForRenderDot(rawUpper, upperStatus);
+  const lowerLane = normalizeLaneForRenderDot(rawLower, lowerStatus);
+
+  if (!upperLane && !lowerLane) {
+    canvasEl.textContent = "No active lanes for this route.";
+    return;
+  }
+
+  if (upperLane) {
     canvasEl.appendChild(
-      renderLane("Upper lane", state.lanes.upper, left, right, upperStatus)
+      renderLane("Upper lane", upperLane, left, right, upperStatus)
     );
   }
 
-  if (state.lanes.lower) {
+  if (lowerLane) {
     canvasEl.appendChild(
-      renderLane("Lower lane", state.lanes.lower, left, right, lowerStatus)
+      renderLane("Lower lane", lowerLane, left, right, lowerStatus)
     );
   }
 }

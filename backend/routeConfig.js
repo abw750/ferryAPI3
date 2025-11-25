@@ -8,6 +8,13 @@
 
 const ROUTES = [
   {
+    routeId: 5,
+    description: "Seattle / Bainbridge Island",
+    terminalNameWest: "Bainbridge Island",
+    terminalNameEast: "Seattle",
+    crossingTimeMinutes: 35,
+  },
+  {
     routeId: 1,
     description: "Pt. Defiance / Tahlequah",
     terminalNameWest: "Point Defiance",
@@ -21,13 +28,6 @@ const ROUTES = [
     terminalNameEast: "Seattle",
     crossingTimeMinutes: 60,
   },  
-  {
-    routeId: 5,
-    description: "Seattle / Bainbridge Island",
-    terminalNameWest: "Bainbridge Island",
-    terminalNameEast: "Seattle",
-    crossingTimeMinutes: 35,
-  },
   {
     routeId: 6,
     description: "Edmonds / Kingston",

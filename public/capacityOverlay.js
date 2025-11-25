@@ -37,7 +37,18 @@ console.log("[capacityOverlay] loaded");
 
     if ((maxW == null || maxW <= 0) && (maxE == null || maxE <= 0)) return;
 
-    const capacityStale = !!(state.meta && state.meta.capacityStale);
+    const capacityStaleGlobal = !!(state.meta && state.meta.capacityStale);
+
+    const westHasReal = maxW != null && maxW > 0;
+    const eastHasReal = maxE != null && maxE > 0;
+
+    // Side-specific “low confidence” flags:
+    // - If only one side has real capacity data, we treat that side as NON-stale
+    //   even when capacityStaleGlobal is true (Route 1 case).
+    // - If both sides have real data and capacityStaleGlobal is true, both sides
+    //   get the low-confidence (light) treatment.
+    const capacityStaleWest = capacityStaleGlobal && westHasReal && eastHasReal;
+    const capacityStaleEast = capacityStaleGlobal && westHasReal && eastHasReal;
 
     const rOuter = 20;
     const strokeWidth = 6;
@@ -63,7 +74,7 @@ console.log("[capacityOverlay] loaded");
       avail: availW,
       max: maxW,
       side: "west",
-      capacityStale,
+      capacityStale: capacityStaleWest,
     });
 
     drawOneCapacityPie(group, {
@@ -74,7 +85,7 @@ console.log("[capacityOverlay] loaded");
       avail: availE,
       max: maxE,
       side: "east",
-      capacityStale,
+      capacityStale: capacityStaleEast,
     });
   }
 

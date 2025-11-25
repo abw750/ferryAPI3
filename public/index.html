@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>WSDOT Real-time Ferry Status</title>
+    <title>WSDOT Real-time Ferry</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -10,6 +10,11 @@
     <header>
       <h1>WSDOT Real-Time Ferry Status</h1>
       <div id="route-info"></div>
+      <div id="route-controls">
+        <button id="route-change-btn" type="button">Change route</button>
+        <select id="route-select" style="display: none;"></select>
+      </div>
+
     </header>
 
     <div id="status">Beta</div>

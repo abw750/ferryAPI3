@@ -4,6 +4,10 @@
   const REFRESH_MS = 10_000;
   let currentRouteId = null;
   let refreshTimerId = null;
+  let routeSelectEl = null;
+  let routeChangeBtnEl = null;
+  let routeInfoEl = null;
+  let layersRef = null;
 
   // --- clock geometry ---
   const CX = 200;
@@ -54,6 +58,8 @@
     }
     console.log("[ferryClock] got face layers:", layers);
 
+    layersRef = layers;
+
     try {
       console.log("[ferryClock] fetching routes from /api/routes");
       const routes = await fetchRoutes();
@@ -64,15 +70,110 @@
         return;
       }
 
-      // Same behavior as dotApp for now: pick the first route.
-      currentRouteId = routes[0].routeId;
-      
+      // Initialize route selector + button, and establish initial currentRouteId.
+      initRouteControls(routes, layers);
+
+      // Initial state fetch for the selected route.
       await refreshDotState(layers);
       refreshTimerId = setInterval(() => refreshDotState(layers), REFRESH_MS);
     } catch (err) {
       console.error("[ferryClock] init error:", err);
       drawDebug(layers, "INIT ERROR");
     }
+  }
+
+    function dispatchRouteSelected(routeId) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("routeSelected", {
+          detail: { routeId }
+        })
+      );
+    } catch (err) {
+      console.error("[ferryClock] dispatchRouteSelected error:", err);
+    }
+  }
+
+  function initRouteControls(routes, layers) {
+    routeSelectEl = document.getElementById("route-select");
+    routeChangeBtnEl = document.getElementById("route-change-btn");
+    routeInfoEl = document.getElementById("route-info");
+
+    if (!routeSelectEl || !routeChangeBtnEl) {
+      console.warn("[ferryClock] route controls not found in DOM");
+      return;
+    }
+
+
+    // Clear any existing options.
+    while (routeSelectEl.firstChild) {
+      routeSelectEl.removeChild(routeSelectEl.firstChild);
+    }
+
+    // Populate selector with descriptions from routeConfig.
+    routes.forEach((route) => {
+      const opt = document.createElement("option");
+      opt.value = String(route.routeId);
+      opt.textContent = route.description || `Route ${route.routeId}`;
+      routeSelectEl.appendChild(opt);
+    });
+
+    // Establish initial routeId (persisting until next boot).
+    if (routes.length > 0) {
+      if (currentRouteId == null) {
+        currentRouteId = routes[0].routeId;
+      }
+      routeSelectEl.value = String(currentRouteId);
+      dispatchRouteSelected(currentRouteId);
+
+      // Update header route description.
+      if (routeInfoEl) {
+        const currentRoute = routes.find((r) => r.routeId === currentRouteId);
+        routeInfoEl.textContent = currentRoute
+          ? (currentRoute.description || "")
+          : "";
+      }
+    }
+
+    // Button toggles the dropdown visibility.
+    routeChangeBtnEl.addEventListener("click", () => {
+      if (!routeSelectEl) return;
+      const isHidden =
+        routeSelectEl.style.display === "none" ||
+        routeSelectEl.style.display === "";
+      routeSelectEl.style.display = isHidden ? "inline-block" : "none";
+    });
+
+    // When the user selects a different route, update currentRouteId
+    // and refresh the clock, then hide the dropdown again.
+    routeSelectEl.addEventListener("change", () => {
+      const value = routeSelectEl.value;
+      const newRouteId = value ? Number(value) : null;
+
+      // If no change, just hide dropdown.
+      if (!newRouteId || newRouteId === currentRouteId) {
+        routeSelectEl.style.display = "none";
+        return;
+      }
+
+      currentRouteId = newRouteId;
+      dispatchRouteSelected(currentRouteId);
+
+      // Update header description with pending refresh note.
+      if (routeInfoEl) {
+        const currentRoute = routes.find((r) => r.routeId === currentRouteId);
+        const desc = currentRoute ? (currentRoute.description || "") : "";
+        routeInfoEl.textContent = desc + " (pending refresh...)";
+      }
+
+      // Trigger refresh immediately (does not block UI).
+      if (layersRef) {
+        refreshDotState(layersRef);
+      }
+
+      // Hide dropdown right away.
+      routeSelectEl.style.display = "none";
+    });
   }
 
   // ---------- backend calls (mirror dotApp.js contract) ----------
@@ -89,6 +190,14 @@
   }
 
   async function refreshDotState(layers) {
+    // Always prefer the current value in the route selector, if present.
+    if (routeSelectEl && routeSelectEl.value) {
+      const maybeId = Number(routeSelectEl.value);
+      if (!Number.isNaN(maybeId) && maybeId > 0) {
+        currentRouteId = maybeId;
+      }
+    }
+
     if (currentRouteId == null) {
       console.warn("[ferryClock] no routeId selected yet");
       drawDebug(layers, "NO ROUTE");
@@ -114,6 +223,12 @@
   // ---------- overlay rendering ----------
   function renderAnalogOverlay(state, layers) {
     layers.clear();
+
+    // Clear pending refresh message if present.
+    if (routeInfoEl) {
+      const base = routeInfoEl.textContent.replace(" (pending refresh...)", "");
+      routeInfoEl.textContent = base;
+    }
 
     const ns = "http://www.w3.org/2000/svg";
     const now = new Date();
@@ -379,8 +494,19 @@ function circleDot(x, y, r, fill) {
       return;
     }
 
-    const upperLane = state.lanes.upper || null;
-    const lowerLane = state.lanes.lower || null;
+    const rawUpperLane = state.lanes.upper || null;
+    const rawLowerLane = state.lanes.lower || null;
+
+    const route = state.route || {};
+    const meta = state.meta || {};
+    const fallbackMeta = meta.fallback || {};
+    const laneFallback = fallbackMeta.lanes || {};
+
+    const upperFallbackStatus = laneFallback.upper || null;
+    const lowerFallbackStatus = laneFallback.lower || null;
+
+    const upperLane = normalizeLaneForRender(rawUpperLane, upperFallbackStatus);
+    const lowerLane = normalizeLaneForRender(rawLowerLane, lowerFallbackStatus);
 
     if (!upperLane && !lowerLane) {
       console.warn("[ferryClock] no upper/lower lanes in state; drawing DEBUG only");
@@ -388,7 +514,58 @@ function circleDot(x, y, r, fill) {
       return;
     }
 
-    const route = state.route || {};
+    function classifyLaneStatus(lane, fallbackStatus) {
+      const fb = (fallbackStatus || "").toLowerCase();
+
+      // If backend explicitly marks lane as missing, honor that.
+      if (fb === "missing") {
+        return "missing";
+      }
+
+      // No lane object at all.
+      if (!lane) {
+        return "missing";
+      }
+
+      const hasRealVessel =
+        lane.vesselId != null &&
+        lane.vesselName &&
+        String(lane.vesselName).trim().toLowerCase() !== "unknown";
+
+      const phase = (lane.phase || "").toUpperCase();
+      const hasTiming =
+        !!(lane.scheduledDeparture ||
+           lane.scheduledDepartureTime ||
+           lane.eta ||
+           lane.estimatedArrivalTime ||
+           lane.currentArrivalTime);
+
+      const looksNullSkeleton =
+        !hasRealVessel &&
+        (!phase || phase === "UNKNOWN") &&
+        !hasTiming;
+
+      if (looksNullSkeleton) {
+        // Skeleton placeholder: treat as effectively no lane.
+        return "missing";
+      }
+
+      if (lane.isStale) {
+        return "stale";
+      }
+
+      return "live";
+    }
+
+    function normalizeLaneForRender(lane, fallbackStatus) {
+      const status = classifyLaneStatus(lane, fallbackStatus);
+      if (status === "missing") {
+        return null;
+      }
+      // For now live vs stale both render as present; styling can
+      // differentiate later if needed.
+      return lane;
+    }
 
 // Dock arcs: outer ring for upper lane, inner ring for lower lane
 function renderDockArcOverlay(group, upperLane, lowerLane, now) {
