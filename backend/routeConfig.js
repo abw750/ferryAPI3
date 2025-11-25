@@ -1,32 +1,87 @@
 // backend/routeConfig.js
-// Single source of truth for user selectable routes (canon section 1).
+// Minimal route → terminal mapping.
+// Only stores what the user (or upstream table) actually assigns:
+// - routeId
+// - description
+// - terminalNameWest / terminalNameEast
+// - crossingTimeMinutes
 
-// Start with one hard coded route. You can add more later.
 const ROUTES = [
   {
-    routeId: 5,                        // Boats_Routes_Vessels.RouteID
-    description: "Seattle ↔ Bainbridge Island",
-    crossingTimeMinutes: 35,           // Boats_Routes_Vessels.CrossingTime
-
+    routeId: 1,
+    description: "Pt. Defiance / Tahlequah",
+    terminalNameWest: "Point Defiance",
+    terminalNameEast: "Tahlequah",
+    crossingTimeMinutes: 15,
+  },
+  {
+    routeId: 3,
+    description: "Seattle / Bremerton",
+    terminalNameWest: "Bremerton",
+    terminalNameEast: "Seattle",
+    crossingTimeMinutes: 60,
+  },  
+  {
+    routeId: 5,
+    description: "Seattle / Bainbridge Island",
     terminalNameWest: "Bainbridge Island",
     terminalNameEast: "Seattle",
-
-    labelWest: "BAINBRIDGE ISLAND",    // UI labels, all caps
-    labelEast: "SEATTLE"
-  }
+    crossingTimeMinutes: 35,
+  },
+  {
+    routeId: 6,
+    description: "Edmonds / Kingston",
+    terminalNameWest: "Kingston",
+    terminalNameEast: "Edmonds",
+    crossingTimeMinutes: 30,
+  },
+  {
+    routeId: 7,
+    description: "Mukilteo / Clinton",
+    terminalNameWest: "Clinton",
+    terminalNameEast: "Mukilteo",
+    crossingTimeMinutes: 20,
+  },
+  {
+    routeId: 8,
+    description: "Port Townsend / Coupeville",
+    terminalNameWest: "Port Townsend",
+    terminalNameEast: "Coupeville", 
+    crossingTimeMinutes: 35,
+  },
+    {
+    routeId: 13,
+    description: "Fauntleroy (West Seattle) / Southworth",
+    terminalNameWest: "Southworth",
+    terminalNameEast: "Fauntleroy",
+    crossingTimeMinutes: 40,
+  },
+  {
+    routeId: 14,
+    description: "Fauntleroy (West Seattle) / Vashon",
+    terminalNameWest: "Vashon Island",
+    terminalNameEast: "Fauntleroy",
+    crossingTimeMinutes: 20,
+  },
+  {
+    routeId: 15,
+    description: "Southworth / Vashon",
+    terminalNameWest: "Vashon Island",
+    terminalNameEast: "Southworth",
+    crossingTimeMinutes: 10,
+  },
 ];
 
-// API for other backend modules
 function getRoutes() {
   return ROUTES;
 }
 
 function getRouteById(routeId) {
   const idNum = Number(routeId);
-  return ROUTES.find(r => r.routeId === idNum) || null;
+  return ROUTES.find((r) => r.routeId === idNum) || null;
 }
 
 module.exports = {
   getRoutes,
-  getRouteById
+  getRouteById,
 };

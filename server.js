@@ -170,6 +170,28 @@ app.get("/api/debug/capacity", async (req, res) => {
   }
 });
 
+// DEBUG: see raw routedetails for a route
+app.get("/api/debug/routedetails", async (req, res) => {
+  try {
+    const routeId = Number(req.query.routeId) || 5;
+    const today = new Date().toISOString().slice(0, 10);
+
+    const raw = await fetchRouteDetails(routeId, today);
+
+    res.json({
+      routeId,
+      tripDateText: today,
+      typeofData: typeof raw,
+      isArray: Array.isArray(raw),
+      keys: raw && typeof raw === "object" && !Array.isArray(raw)
+        ? Object.keys(raw)
+        : null,
+      sample: Array.isArray(raw) ? raw.slice(0, 3) : raw,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || String(err) });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`FerryAPI3 listening on http://localhost:${PORT}`);

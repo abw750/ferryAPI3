@@ -10,13 +10,17 @@
 // - If no usable live data for the route, falls back to a synthetic state.
 
 const { getRouteById } = require("./routeConfig");
-const { getTerminalIdsForRoute } = require("./terminalMap");
+const {
+  getTerminalIdsForRoute,
+  resolveTerminalIdsFromRouteDetails,
+} = require("./terminalMap");
 const {
   getNormalizedVessels,
   fetchDailySchedule,
+  fetchDailyScheduleRaw,
+  fetchRouteDetails,
   fetchTerminalSpaces,
 } = require("./wsdotClient");
-
 
 // Last-good lane cache (in-memory, per route, per lane).
 // We reuse a lane for a finite window when live data disappears,
@@ -818,7 +822,60 @@ async function buildDotState(routeId) {
   const nowMs = now.getTime();
   const labelWest = deriveLabel(route.terminalNameWest);
   const labelEast = deriveLabel(route.terminalNameEast);
-  const { terminalIdWest, terminalIdEast } = getTerminalIdsForRoute(route);
+
+  let { terminalIdWest, terminalIdEast } = getTerminalIdsForRoute(route);
+
+  try {
+    const tripDateText = nowIso.slice(0, 10);
+
+    const sched = await fetchDailyScheduleRaw(route.routeId, tripDateText);
+
+    if (sched && Array.isArray(sched.TerminalCombos)) {
+      const combos = sched.TerminalCombos;
+
+      const nameWest = route.terminalNameWest
+        ? String(route.terminalNameWest).trim().toLowerCase()
+        : null;
+      const nameEast = route.terminalNameEast
+        ? String(route.terminalNameEast).trim().toLowerCase()
+        : null;
+
+      let westId = terminalIdWest;
+      let eastId = terminalIdEast;
+
+      for (const combo of combos) {
+        if (!combo) continue;
+
+        const depNameRaw = combo.DepartingTerminalName;
+        const depId = combo.DepartingTerminalID;
+
+        if (depNameRaw == null || depId == null) continue;
+
+        const depName = String(depNameRaw).trim().toLowerCase();
+
+        // Match WEST / EAST by DepartingTerminalName, as you specified.
+        if (nameWest && depName === nameWest && westId == null) {
+          westId = Number(depId);
+        }
+        if (nameEast && depName === nameEast && eastId == null) {
+          eastId = Number(depId);
+        }
+
+        if (westId != null && eastId != null) {
+          break;
+        }
+      }
+
+      if (westId != null) {
+        terminalIdWest = westId;
+      }
+      if (eastId != null) {
+        terminalIdEast = eastId;
+      }
+    }
+  } catch (_err) {
+    // On any error, leave terminalIdWest/East as-is (name-based or null).
+  }
 
   // ---- Capacity placeholders (to be filled below) ----
   let capacity = null;
@@ -898,7 +955,6 @@ if (scheduleError || (!scheduledUpper && !scheduledLower)) {
       terminalsPayload,
       now,
     });
-
 
     const west = westResult.data;
     const east = eastResult.data;
