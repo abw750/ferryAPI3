@@ -16,7 +16,7 @@
   // color palette
   const COLOR_STRONG_LTR = "#0e6b43a7"; // BI → SEA transit segment (semi transparent)
   const COLOR_STRONG_RTL = "#ff2121b9"; // SEA → BI transit segment (semi transparent)
-  const COLOR_TRACK       = "#ffffffa0"; // grey track (semi transparent)
+  const COLOR_TRACK       = "#c8c7c7b2"; // grey track (semi transparent)
 
   // Opaque dot colors, aligned with CSS lane-dot direction palette
   const COLOR_DOT_LTR   = "#10b981"; // WEST → EAST dot

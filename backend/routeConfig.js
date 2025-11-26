@@ -49,27 +49,28 @@ const ROUTES = [
     terminalNameEast: "Coupeville", 
     crossingTimeMinutes: 35,
   },
-    {
-    routeId: 13,
-    description: "Fauntleroy (West Seattle) / Southworth",
-    terminalNameWest: "Southworth",
-    terminalNameEast: "Fauntleroy",
-    crossingTimeMinutes: 40,
-  },
-  {
-    routeId: 14,
-    description: "Fauntleroy (West Seattle) / Vashon",
-    terminalNameWest: "Vashon Island",
-    terminalNameEast: "Fauntleroy",
-    crossingTimeMinutes: 20,
-  },
-  {
-    routeId: 15,
-    description: "Southworth / Vashon",
-    terminalNameWest: "Vashon Island",
-    terminalNameEast: "Southworth",
-    crossingTimeMinutes: 10,
-  },
+  //  removed the below beacuse these routes are actually a triangle with three terminals 
+  //   {
+  //   routeId: 13,
+  //   description: "Fauntleroy (West Seattle) / Southworth",
+  //   terminalNameWest: "Southworth",
+  //   terminalNameEast: "Fauntleroy",
+  //   crossingTimeMinutes: 40,
+  // },
+  // {
+  //   routeId: 14,
+  //   description: "Fauntleroy (West Seattle) / Vashon",
+  //   terminalNameWest: "Vashon Island",
+  //   terminalNameEast: "Fauntleroy",
+  //   crossingTimeMinutes: 20,
+  // },
+  // {
+  //   routeId: 15,
+  //   description: "Southworth / Vashon",
+  //   terminalNameWest: "Vashon Island",
+  //   terminalNameEast: "Southworth",
+  //   crossingTimeMinutes: 10,
+  // },
 ];
 
 function getRoutes() {
