@@ -547,46 +547,46 @@ function snapStaleLaneToDockIfArrived(lane, now) {
   };
 }
 
-// Choose one vessel per direction for the selected route.
-function pickLaneVesselsForRoute(route, terminalIdWest, terminalIdEast, rawList) {
-  const norm = rawList.filter(Boolean);
+// // Choose one vessel per direction for the selected route.
+// function pickLaneVesselsForRoute(route, terminalIdWest, terminalIdEast, rawList) {
+//   const norm = rawList.filter(Boolean);
 
-  const westToEast = norm
-    .filter(
-      (v) =>
-        v.departingId === terminalIdWest &&
-        v.arrivingId === terminalIdEast
-    )
-    .sort((a, b) => {
-      // Prefer lower VesselPositionNum, then earliest scheduled departure.
-      const posDiff =
-        (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
-      if (posDiff !== 0) return posDiff;
-      const aDep = a.scheduledDepartureIso || "";
-      const bDep = b.scheduledDepartureIso || "";
-      return aDep.localeCompare(bDep);
-    });
+//   const westToEast = norm
+//     .filter(
+//       (v) =>
+//         v.departingId === terminalIdWest &&
+//         v.arrivingId === terminalIdEast
+//     )
+//     .sort((a, b) => {
+//       // Prefer lower VesselPositionNum, then earliest scheduled departure.
+//       const posDiff =
+//         (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
+//       if (posDiff !== 0) return posDiff;
+//       const aDep = a.scheduledDepartureIso || "";
+//       const bDep = b.scheduledDepartureIso || "";
+//       return aDep.localeCompare(bDep);
+//     });
 
-  const eastToWest = norm
-    .filter(
-      (v) =>
-        v.departingId === terminalIdEast &&
-        v.arrivingId === terminalIdWest
-    )
-    .sort((a, b) => {
-      const posDiff =
-        (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
-      if (posDiff !== 0) return posDiff;
-      const aDep = a.scheduledDepartureIso || "";
-      const bDep = b.scheduledDepartureIso || "";
-      return aDep.localeCompare(bDep);
-    });
+//   const eastToWest = norm
+//     .filter(
+//       (v) =>
+//         v.departingId === terminalIdEast &&
+//         v.arrivingId === terminalIdWest
+//     )
+//     .sort((a, b) => {
+//       const posDiff =
+//         (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
+//       if (posDiff !== 0) return posDiff;
+//       const aDep = a.scheduledDepartureIso || "";
+//       const bDep = b.scheduledDepartureIso || "";
+//       return aDep.localeCompare(bDep);
+//     });
 
-  return {
-    upperRaw: westToEast[0] || null, // UPPER lane = West → East
-    lowerRaw: eastToWest[0] || null, // LOWER lane = East → West
-  };
-}
+//   return {
+//     upperRaw: westToEast[0] || null, // UPPER lane = West → East
+//     lowerRaw: eastToWest[0] || null, // LOWER lane = East → West
+//   };
+// }
 function deriveDirectionAndTerminals(raw, terminalIdWest, terminalIdEast, defaultDirection) {
   // If we have clear live terminals, prefer them.
   if (raw && raw.departingId != null && raw.arrivingId != null) {

@@ -54,10 +54,12 @@ console.log("[capacityOverlay] loaded");
     const strokeWidth = 6;
     const rInner = rOuter - strokeWidth;
 
-    // Dial geometry
-    const CX = 200;
-    const CY = 200;
-    const BAR_W = 150;
+    // Dial geometry: prefer FerryGeometry from ferryClock.js when available
+    const geom = window.FerryGeometry || null;
+    const CX = geom && typeof geom.CX === "number" ? geom.CX : 200;
+    const CY = geom && typeof geom.CY === "number" ? geom.CY : 200;
+    const BAR_W =
+      geom && typeof geom.barWidth === "number" ? geom.barWidth : 150;
     const offset = BAR_W / 2 + 50;
     const xWestLabel = CX - offset;
     const xEastLabel = CX + offset;
@@ -89,7 +91,7 @@ console.log("[capacityOverlay] loaded");
     });
   }
 
-    function drawOneCapacityPie(group, opts) {
+  function drawOneCapacityPie(group, opts) {
     const {
       cx, cy,
       rOuter,
@@ -122,7 +124,6 @@ console.log("[capacityOverlay] loaded");
     const scheme = side === "west"
       ? { strong: COLOR_STRONG_LTR, light: COLOR_STRONG_LTR, dot: COLOR_DOT_LTR }
       : { strong: COLOR_STRONG_RTL, light: COLOR_STRONG_RTL, dot: COLOR_DOT_RTL };
-
 
     const low = !!capacityStale;
     const strokeColor = low ? scheme.light : scheme.strong;
@@ -188,7 +189,6 @@ console.log("[capacityOverlay] loaded");
       opacity: 1,
     });
     group.appendChild(inner);
-
 
     // text
     const label = elNS("text", {

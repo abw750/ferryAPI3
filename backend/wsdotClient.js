@@ -185,7 +185,6 @@ async function fetchRouteDetails(routeId, tripDateText) {
     500   // backoffMs
   );
 
-
   return res && typeof res.data !== "undefined" ? res.data : null;
 }
 
@@ -232,7 +231,6 @@ async function getNormalizedVessels() {
     2,    // maxAttempts
     500   // backoffMs
   );
-
 
   if (!res || !Array.isArray(res.data)) {
     throw new Error("Unexpected vessellocations payload");

@@ -396,6 +396,26 @@ function circleDot(x, y, r, fill) {
     // the implementation owned here.
     window.FerryDescribeArcPath = describeArcPath;
 
+    // Shared geometry descriptor for all overlay modules (lanes, arcs, pies).
+    window.FerryGeometry = {
+      CX,
+      CY,
+      laneRows: {
+        upper: 95,
+        lower: 305,
+      },
+      barWidth: BAR_W,
+      barYOffset: BAR_Y_OFFSET,
+      barThickness: BAR_THICKNESS,
+      dockRadii: {
+        upper: R_DOCK_UPPER,
+        lower: R_DOCK_LOWER,
+      },
+      dockArcThickness: DOCK_ARC_THICKNESS,
+      polarToCartesian,
+      describeArcPath,
+    };
+
     // Ensure a stable group for dock arcs; keep them behind top/bottom rows.
     function ensureDockArcGroup(layers) {
       const gOverlay = layers.overlay;
@@ -595,6 +615,7 @@ function renderDockArcOverlay(group, upperLane, lowerLane, now) {
         upperLane,
         lowerLane,
         now,
+        geometry: window.FerryGeometry || null,
       });
     } catch (err) {
       console.error("[ferryClock] FerryDockArcOverlay.render error:", err);

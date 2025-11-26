@@ -10,12 +10,8 @@ console.log("[dockArcOverlay] loaded");
     return n;
   }
 
-  // Geometry: match ferryClock.js / faceRenderer
-  const CX = 200;
-  const CY = 200;
-  const DOCK_ARC_THICKNESS = 8;
-  const R_DOCK_UPPER = 175; // outer lane ring
-  const R_DOCK_LOWER = 165; // inner lane ring
+  // Geometry is supplied by ferryClock.js via window.FerryGeometry.
+
 
   // Color palette: use global FerryPalette from ferryClock.js
   function getColors() {
@@ -29,38 +25,7 @@ console.log("[dockArcOverlay] loaded");
     };
   }
 
-  function laneDir(lane) {
-    const d = (lane?.direction || "").toUpperCase();
-    if (d === "WEST_TO_EAST") return "ltr";
-    if (d === "EAST_TO_WEST") return "rtl";
-    return null;
-  }
-
-  function describeArcPathLocal(cx, cy, r, startAngle, endAngle) {
-    function polarToCartesianLocal(cx, cy, r, angleRad) {
-      return {
-        x: cx + r * Math.cos(angleRad),
-        y: cy + r * Math.sin(angleRad),
-      };
-    }
-
-    const start = polarToCartesianLocal(cx, cy, r, startAngle);
-    const end   = polarToCartesianLocal(cx, cy, r, endAngle);
-
-    let delta = endAngle - startAngle;
-    while (delta < 0) delta += Math.PI * 2;
-    while (delta > Math.PI * 2) delta -= Math.PI * 2;
-
-    const largeArcFlag = delta > Math.PI ? 1 : 0;
-    const sweepFlag = 1;
-
-    return [
-      "M", start.x, start.y,
-      "A", r, r, 0, largeArcFlag, sweepFlag, end.x, end.y,
-    ].join(" ");
-  }
-
-  function drawDockArcForLane(group, lane, laneKey, now) {
+  function drawDockArcForLane(group, lane, laneKey, now, geom) {
     if (!group || !lane) return;
     if (!lane.atDock) return;
     if (!lane.dockStartTime) return;
@@ -78,10 +43,29 @@ console.log("[dockArcOverlay] loaded");
     if (frac <= 0) return;
     if (frac > 1) frac = 1;
 
-    const radius = laneKey === "upper" ? R_DOCK_UPPER : R_DOCK_LOWER;
+    // Geometry: pull from FerryGeometry with safe fallbacks.
+    const CX = geom && typeof geom.CX === "number" ? geom.CX : 200;
+    const CY = geom && typeof geom.CY === "number" ? geom.CY : 200;
+
+    const dockRadii = (geom && geom.dockRadii) || {};
+    const radius =
+      laneKey === "upper"
+        ? (typeof dockRadii.upper === "number" ? dockRadii.upper : 175)
+        : (typeof dockRadii.lower === "number" ? dockRadii.lower : 165);
+
+    const dockArcThickness =
+      geom && typeof geom.dockArcThickness === "number"
+        ? geom.dockArcThickness
+        : 8;
+
+    const describeArcPath =
+      geom && typeof geom.describeArcPath === "function"
+        ? geom.describeArcPath
+        : window.FerryDescribeArcPath;
 
     // Anchor: minute hand at dockStartTime, local minutes + seconds
-    const localMinutes = (startDate.getMinutes() + startDate.getSeconds() / 60) % 60;
+    const localMinutes =
+      (startDate.getMinutes() + startDate.getSeconds() / 60) % 60;
     const startAngle = (Math.PI / 30) * localMinutes - Math.PI / 2;
 
     const spanAngle = frac * Math.PI * 2;
@@ -90,6 +74,7 @@ console.log("[dockArcOverlay] loaded");
     const dirKey = laneDir(lane);
     if (!dirKey) return;
 
+    const COLORS = getColors();
     const scheme = dirKey === "rtl" ? COLORS.rtl : COLORS.ltr;
 
     // Stale/synthetic dock timing → visually degraded arc
@@ -108,18 +93,18 @@ console.log("[dockArcOverlay] loaded");
         r: String(radius),
         fill: "none",
         stroke: strokeColor,
-        "stroke-width": String(DOCK_ARC_THICKNESS),
+        "stroke-width": String(dockArcThickness),
         opacity: String(baseOpacity),
       });
       group.appendChild(circle);
-    } else {
+    } else if (typeof describeArcPath === "function") {
       // Partial arc
-      const d = describeArcPathLocal(CX, CY, radius, startAngle, endAngle);
+      const d = describeArcPath(CX, CY, radius, startAngle, endAngle);
       const path = elNS("path", {
         d,
         fill: "none",
         stroke: strokeColor,
-        "stroke-width": String(DOCK_ARC_THICKNESS),
+        "stroke-width": String(dockArcThickness),
         "stroke-linecap": "butt",
         opacity: String(baseOpacity),
       });
@@ -134,19 +119,26 @@ console.log("[dockArcOverlay] loaded");
    *   group:     <SVGGroupElement>, // #dock-arcs
    *   upperLane: state.lanes.upper,
    *   lowerLane: state.lanes.lower,
-   *   now:       Date
+   *   now:       Date,
+   *   geometry?: window.FerryGeometry
    * }
    */
   function render(opts) {
     if (!opts || !opts.group || !opts.now) return;
+
+    const geom = opts.geometry || window.FerryGeometry || null;
+    if (!geom) {
+      console.warn("[dockArcOverlay] missing FerryGeometry; skipping arcs");
+      return;
+    }
 
     const g = opts.group;
     const upper = opts.upperLane || null;
     const lower = opts.lowerLane || null;
     const now = opts.now;
 
-    if (upper) drawDockArcForLane(g, upper, "upper", now);
-    if (lower) drawDockArcForLane(g, lower, "lower", now);
+    if (upper) drawDockArcForLane(g, upper, "upper", now, geom);
+    if (lower) drawDockArcForLane(g, lower, "lower", now, geom);
   }
 
   window.FerryDockArcOverlay = { render };

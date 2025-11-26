@@ -202,12 +202,22 @@
       });
     }
 
-    // Upper + lower lanes, same y positions as ferryClock
+    // Upper + lower lanes, same y positions as ferryClock (via FerryGeometry when available)
+    const geom = window.FerryGeometry || null;
+
+    const yUpper = geom && geom.laneRows && typeof geom.laneRows.upper === "number"
+      ? geom.laneRows.upper
+      : 95;
+
+    const yLower = geom && geom.laneRows && typeof geom.laneRows.lower === "number"
+      ? geom.laneRows.lower
+      : 305;
+
     if (upperLane && topGroup) {
-      drawLaneRowModule(topGroup, upperLane, 95);
+      drawLaneRowModule(topGroup, upperLane, yUpper);
     }
     if (lowerLane && bottomGroup) {
-      drawLaneRowModule(bottomGroup, lowerLane, 305);
+      drawLaneRowModule(bottomGroup, lowerLane, yLower);
     }
 
     // Sentinel: we successfully rendered something for this cycle.

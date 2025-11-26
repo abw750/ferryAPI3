@@ -52,10 +52,10 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
     svg.appendChild(secondHand);
 
 
-    // Center dot
-    const centerDot = ensure(hands, "circle", {
+    // Center dot (lives at root so it can sit above the second hand)
+    const centerDot = ensure(svg, "circle", {
         id: "clock-center",
-        cx: 200, cy: 200, r: 4
+        cx: 200, cy: 200, r: 3
     });
     centerDot.setAttribute("style", `fill:${CENTER_DOT_COLOR}`);
 
@@ -128,10 +128,19 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
             const tz = getSeattleZoneAbbrev();
             // Show only "PST" or "PDT" (Intl may sometimes return "GMT-8" in odd locales).
             tzNode.textContent = (tz === "PST" || tz === "PDT") ? tz : tz;
-        }    // Keep the second hand as the topmost SVG child on every tick.
+        }
+
+        // Keep the second hand just under the center dot on every tick.
         const svgNode = secondHand.ownerSVGElement;
-        if (svgNode && svgNode.lastChild !== secondHand) {
-            svgNode.appendChild(secondHand);
+        if (svgNode) {
+            // Center dot should always be topmost
+            if (centerDot && svgNode.lastChild !== centerDot) {
+                svgNode.appendChild(centerDot);
+            }
+            // Second hand should sit directly under the center dot
+            if (centerDot && centerDot.previousSibling !== secondHand) {
+                svgNode.insertBefore(secondHand, centerDot);
+            }
         }
     }
 
