@@ -1,4 +1,4 @@
-// public/ferryClock.js — FerryClock3 analog overlay scaffold (with debug logging).
+// public/desktop/ferryClock.js — FerryClock3 analog overlay scaffold (with debug logging).
 
 (function () {
   const REFRESH_MS = 10_000;

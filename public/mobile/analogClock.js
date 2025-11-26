@@ -1,4 +1,4 @@
-// public/analogClock.js — clock-only scaffolding. No ferry visuals.
+// public/mobile/analogClock.js — clock-only scaffolding. No ferry visuals.
 console.log("[analogClock] init, svg found:", !!document.getElementById("clockFace"));
 
 (function initClock() {
@@ -7,11 +7,17 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
     if (!svg) { document.addEventListener("DOMContentLoaded", initClock, { once: true }); return; }
 
     // --- clock hands (hour, minute, second) ---
-    const HAND_COLOR = "#1a3672ff";        // hour + minute hands
+    const HAND_COLOR = "#636c80ff";        // hour + minute hands
     const SECOND_HAND_COLOR = "#747474ff"; // second hand
     const CENTER_DOT_COLOR = "#525252ff";  // center dot
 
     const hands = ensure(svg, "g", { id: "clock-hands" });
+
+    // Keep hour/minute hands under the ferry overlay layers.
+    const overlay = svg.querySelector("#clock-overlay");
+    if (overlay && hands.nextSibling !== overlay) {
+    svg.insertBefore(hands, overlay);
+    }
 
     const hourHand = ensure(hands, "line", {
         id: "hand-hour",
@@ -31,14 +37,20 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
         `stroke:${HAND_COLOR};stroke-width:2.5;stroke-linecap:round`
     );
 
-    const secondHand = ensure(hands, "line", {
-        id: "hand-second",
-        x1: 200, y1: 200, x2: 200, y2: 23
-    });
+    // Second hand is independent of #clock-hands so it can sit above overlays.
+    const secondHand = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    secondHand.setAttribute("id", "hand-second");
+    secondHand.setAttribute("x1", "200");
+    secondHand.setAttribute("y1", "200");
+    secondHand.setAttribute("x2", "200");
+    secondHand.setAttribute("y2", "23");
     secondHand.setAttribute(
         "style",
         `stroke:${SECOND_HAND_COLOR};stroke-width:1.5;stroke-linecap:round`
     );
+    // Append once now; we will keep it last on every tick.
+    svg.appendChild(secondHand);
+
 
     // Center dot
     const centerDot = ensure(hands, "circle", {
@@ -116,6 +128,10 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
             const tz = getSeattleZoneAbbrev();
             // Show only "PST" or "PDT" (Intl may sometimes return "GMT-8" in odd locales).
             tzNode.textContent = (tz === "PST" || tz === "PDT") ? tz : tz;
+        }    // Keep the second hand as the topmost SVG child on every tick.
+        const svgNode = secondHand.ownerSVGElement;
+        if (svgNode && svgNode.lastChild !== secondHand) {
+            svgNode.appendChild(secondHand);
         }
     }
 

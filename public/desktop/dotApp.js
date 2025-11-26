@@ -1,4 +1,4 @@
-// public/dotApp.js
+// public/desktop/dotApp.js
 console.log("dotApp.js loaded");
 
 const routeInfoEl = document.getElementById("route-info");

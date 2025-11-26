@@ -1,4 +1,4 @@
-// public/dockArcOverlay.js — Cannon dock arcs
+// public/desktop/dockArcOverlay.js — Cannon dock arcs
 console.log("[dockArcOverlay] loaded");
 
 (function () {

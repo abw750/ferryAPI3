@@ -1,4 +1,4 @@
-// public/capacityOverlay.js — capacity pies (Cannon semantics)
+// public/mobile/capacityOverlay.js — capacity pies (Cannon semantics)
 console.log("[capacityOverlay] loaded");
 
 (function () {
@@ -108,16 +108,21 @@ console.log("[capacityOverlay] loaded");
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
 
-    // color mapping must match ferryClock.js COLORS.ltr / COLORS.rtl
-    const COLOR_STRONG_LTR = "#1c9560a7";
-    const COLOR_STRONG_RTL = "#ff2121b9";
-    const COLOR_DOT_LTR    = "#10b981";
-    const COLOR_DOT_RTL    = "#ef4444";
-    const COLOR_TRACK      = "#fdfdfda0";
+    // Color mapping: use global FerryPalette from ferryClock.js
+    const palette = window.FerryPalette;
+    if (!palette) {
+      throw new Error("[capacityOverlay] FerryPalette is not defined");
+    }
+    const COLOR_STRONG_LTR = palette.strongLtr;
+    const COLOR_STRONG_RTL = palette.strongRtl;
+    const COLOR_DOT_LTR    = palette.dotLtr;
+    const COLOR_DOT_RTL    = palette.dotRtl;
+    const COLOR_TRACK      = palette.track;
 
     const scheme = side === "west"
       ? { strong: COLOR_STRONG_LTR, light: COLOR_STRONG_LTR, dot: COLOR_DOT_LTR }
       : { strong: COLOR_STRONG_RTL, light: COLOR_STRONG_RTL, dot: COLOR_DOT_RTL };
+
 
     const low = !!capacityStale;
     const strokeColor = low ? scheme.light : scheme.strong;

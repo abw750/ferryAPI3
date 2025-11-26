@@ -1,4 +1,4 @@
-// public/analogClock.js — clock-only scaffolding. No ferry visuals.
+// public/desktop/analogClock.js — clock-only scaffolding. No ferry visuals.
 console.log("[analogClock] init, svg found:", !!document.getElementById("clockFace"));
 
 (function initClock() {

@@ -1090,30 +1090,21 @@ if (scheduleError || (!scheduledUpper && !scheduledLower)) {
     });
     upperSource = "live";
     setLastGoodLane(route.routeId, "upper", upperLane, nowMs);
-  } else {
-    const cachedUpper = getLastGoodLane(route.routeId, "upper", nowMs);
-    if (cachedUpper) {
-      // Reuse last-good lane, but mark as stale and bump timestamp.
-      upperLane = {
-        ...cachedUpper,
-        lastUpdatedVessels: nowIso,
-        isStale: true,
-      };
-      upperSource = "stale";
     } else {
-      // No live or cached data for this lane; degraded but valid lane.
-      upperLane = buildLaneFromVessel(null, {
-        laneId: "UPPER",
-        positionNumber: 1,
-        direction: "WEST_TO_EAST",
-        departureTerminalId: terminalIdWest,
-        arrivalTerminalId: terminalIdEast,
-        route,
-        now,
-      });
-      upperSource = "missing";
+      const cachedLower = getLastGoodLane(route.routeId, "lower", nowMs);
+      if (cachedLower) {
+        lowerLane = {
+          ...cachedLower,
+          lastUpdatedVessels: nowIso,
+          isStale: true,
+        };
+        lowerSource = "stale";
+      } else {
+        // No live or cached data: remove the lane instead of fabricating a bogus one.
+        lowerLane = null;
+        lowerSource = "missing";
+      }
     }
-  }
 
   // LOWER lane: slot 2 vessel, direction from live terminals when available.
   if (lowerRaw) {

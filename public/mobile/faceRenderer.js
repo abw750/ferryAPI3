@@ -1,4 +1,4 @@
-// public/faceRenderer.js — owns SVG layers only. No time. No ferries.
+// public/mobile/faceRenderer.js — owns SVG layers only. No time. No ferries.
 (function () {
   function init() {
     const SVG_ID = "clockFace";

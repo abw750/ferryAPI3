@@ -1,4 +1,4 @@
-// public/ferryClock.js — FerryClock3 analog overlay scaffold (with debug logging).
+// public/mobile/ferryClock.js — FerryClock3 analog overlay scaffold (with debug logging).
 
 (function () {
   const REFRESH_MS = 10_000;
@@ -14,7 +14,7 @@
   const CY = 200;
 
   // color palette
-  const COLOR_STRONG_LTR = "#0e6b43a7"; // BI → SEA transit segment (semi transparent)
+  const COLOR_STRONG_LTR = "#128b56c0"; // BI → SEA transit segment (semi transparent)
   const COLOR_STRONG_RTL = "#ff2121b9"; // SEA → BI transit segment (semi transparent)
   const COLOR_TRACK       = "#c8c7c7b2"; // grey track (semi transparent)
 
@@ -26,6 +26,15 @@
     ltr:  { strong: COLOR_STRONG_LTR, light: COLOR_STRONG_LTR, dot: COLOR_DOT_LTR },
     rtl:  { strong: COLOR_STRONG_RTL, light: COLOR_STRONG_RTL, dot: COLOR_DOT_RTL },
     track: COLOR_TRACK,
+  };
+
+  // Global palette used by all overlays (lanes, pies, arcs)
+  window.FerryPalette = {
+    strongLtr: COLOR_STRONG_LTR,
+    strongRtl: COLOR_STRONG_RTL,
+    track:     COLOR_TRACK,
+    dotLtr:    COLOR_DOT_LTR,
+    dotRtl:    COLOR_DOT_RTL,
   };
 
   const ICON_SRC  = "/icons/ferry.png";
@@ -40,8 +49,8 @@
 
   // Dock arcs: radii match faceRenderer rings
   const DOCK_ARC_THICKNESS = 8;   // stroke width inside each white band
-  const R_DOCK_UPPER = 174;       // outer lane: midpoint of 160–178 band
-  const R_DOCK_LOWER = 165;       // inner lane: midpoint above numerals at ~148
+  const R_DOCK_UPPER = 173.5;       // outer lane: midpoint of 160–178 band
+  const R_DOCK_LOWER = 164.5;       // inner lane: midpoint above numerals at ~148
 
   // ---------- entry point ----------
   if (document.readyState === "loading") {

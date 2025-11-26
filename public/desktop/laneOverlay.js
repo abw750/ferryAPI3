@@ -1,4 +1,4 @@
-// public/laneOverlay.js — lane bars + arrows + dots (Cannon semantics)
+// public/desktop/laneOverlay.js — lane bars + arrows + dots (Cannon semantics)
 
 (function () {
   // Geometry + helper functions injected from ferryClock.js

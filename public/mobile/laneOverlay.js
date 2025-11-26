@@ -1,4 +1,4 @@
-// public/laneOverlay.js — lane bars + arrows + dots (Cannon semantics)
+// public/mobile/laneOverlay.js — lane bars + arrows + dots (Cannon semantics)
 
 (function () {
   // Geometry + helper functions injected from ferryClock.js
@@ -53,26 +53,6 @@
     group.appendChild(t);
   }
 
-  /**
-   * Inject shared geometry and helper functions so this module does not
-   * depend on guessing globals.
-   *
-   * Expected shape (from ferryClock.js):
-   * {
-   *   CX, CY,
-   *   laneDir,
-   *   isUnderway,
-   *   barRect,
-   *   circleDot,
-   *   addShipIcon,
-   *   formatClockLabel,
-   *   COLORS,
-   *   BAR_W,
-   *   BAR_THICKNESS,
-   *   BAR_Y_OFFSET,
-   *   LABEL_GAP
-   * }
-   */
   function injectHelpers(h) {
     helpers = h || null;
   }
@@ -108,6 +88,10 @@
 
     function drawLaneRowModule(group, lane, yRow) {
       if (!group || !lane) return;
+
+      // Stale/synthetic lane → visually degraded whole row
+      const staleForLane = !!lane.isStale;
+      group.setAttribute("opacity", staleForLane ? "0.6" : "1.0");
 
       const dirKey = laneDir(lane);
       const underway = isUnderway(lane);

@@ -1,4 +1,4 @@
-// public/dockArcOverlay.js — Cannon dock arcs
+// public/mobile/dockArcOverlay.js — Cannon dock arcs
 console.log("[dockArcOverlay] loaded");
 
 (function () {
@@ -14,19 +14,20 @@ console.log("[dockArcOverlay] loaded");
   const CX = 200;
   const CY = 200;
   const DOCK_ARC_THICKNESS = 8;
-  const R_DOCK_UPPER = 174; // outer lane ring
+  const R_DOCK_UPPER = 175; // outer lane ring
   const R_DOCK_LOWER = 165; // inner lane ring
 
-  // Color palette: match ferryClock.js
-  const COLOR_STRONG_LTR = "#1c9560a7"; // BI → SEA
-  const COLOR_STRONG_RTL = "#ff2121b9"; // SEA → BI
-  const COLOR_DOT_LTR    = "#10b981";
-  const COLOR_DOT_RTL    = "#ef4444";
-
-  const COLORS = {
-    ltr: { strong: COLOR_STRONG_LTR, light: COLOR_STRONG_LTR, dot: COLOR_DOT_LTR },
-    rtl: { strong: COLOR_STRONG_RTL, light: COLOR_STRONG_RTL, dot: COLOR_DOT_RTL },
-  };
+  // Color palette: use global FerryPalette from ferryClock.js
+  function getColors() {
+    const palette = window.FerryPalette;
+    if (!palette) {
+      throw new Error("[dockArcOverlay] FerryPalette is not defined");
+    }
+    return {
+      ltr: { strong: palette.strongLtr, light: palette.strongLtr, dot: palette.dotLtr },
+      rtl: { strong: palette.strongRtl, light: palette.strongRtl, dot: palette.dotRtl },
+    };
+  }
 
   function laneDir(lane) {
     const d = (lane?.direction || "").toUpperCase();
@@ -90,10 +91,17 @@ console.log("[dockArcOverlay] loaded");
     if (!dirKey) return;
 
     const scheme = dirKey === "rtl" ? COLORS.rtl : COLORS.ltr;
-    const lowConfidence = !!lane.dockStartIsSynthetic || !!lane.isStale;
-    const strokeColor = lowConfidence ? scheme.light : scheme.strong;
+
+    // Stale/synthetic dock timing → visually degraded arc
+    const staleForArc =
+      !!lane.dockStartIsSynthetic ||
+      !!lane.isStale;
+
+    const baseOpacity = staleForArc ? 0.6 : 1.0;
+    const strokeColor = staleForArc ? scheme.light : scheme.strong;
 
     if (frac >= 0.999) {
+      // Full circle: 1h+ at dock
       const circle = elNS("circle", {
         cx: String(CX),
         cy: String(CY),
@@ -101,9 +109,11 @@ console.log("[dockArcOverlay] loaded");
         fill: "none",
         stroke: strokeColor,
         "stroke-width": String(DOCK_ARC_THICKNESS),
+        opacity: String(baseOpacity),
       });
       group.appendChild(circle);
     } else {
+      // Partial arc
       const d = describeArcPathLocal(CX, CY, radius, startAngle, endAngle);
       const path = elNS("path", {
         d,
@@ -111,6 +121,7 @@ console.log("[dockArcOverlay] loaded");
         stroke: strokeColor,
         "stroke-width": String(DOCK_ARC_THICKNESS),
         "stroke-linecap": "butt",
+        opacity: String(baseOpacity),
       });
       group.appendChild(path);
     }

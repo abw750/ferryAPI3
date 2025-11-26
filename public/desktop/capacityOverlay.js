@@ -1,4 +1,4 @@
-// public/capacityOverlay.js — capacity pies (Cannon semantics)
+// public/desktop/capacityOverlay.js — capacity pies (Cannon semantics)
 console.log("[capacityOverlay] loaded");
 
 (function () {
