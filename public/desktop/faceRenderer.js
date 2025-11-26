@@ -66,7 +66,7 @@
         const y = C.cy + numeralRadius * Math.sin(angle);
 
         const text = document.createElementNS(ns, "text");
-        text.setAttribute("x", String(x+1));
+        text.setAttribute("x", String(x));
         text.setAttribute("y", String(y+2));
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("dominant-baseline", "middle");
@@ -97,17 +97,16 @@
         tick.setAttribute("y2", String(y2));
         G.appendChild(tick);
       }
-            // outer minute numerals (5–60) just outside outer rim
+
+      // outer minute numerals (5–60) just outside outer rim
       const minuteLabelRadius = 190; // outside rOuterLong=182, inside SVG edge
       for (let i = 0; i < 60; i++) {
         if (i % 5 !== 0) continue; // only 5-minute increments
 
         const value = (i === 0) ? 60 : i; // 0 minutes → "60" at top
         const a = (Math.PI / 30) * i - Math.PI / 2;
-
         const x = C.cx + minuteLabelRadius * Math.cos(a);
         const y = C.cy + minuteLabelRadius * Math.sin(a);
-
         const label = document.createElementNS(ns, "text");
         label.setAttribute("x", String(x));
         label.setAttribute("y", String(y+1));
@@ -116,6 +115,21 @@
         label.setAttribute("font-size", "10");
         label.textContent = String(value);
         G.appendChild(label);
+      }
+
+      // Time zone label (PST/PDT) under 12 o'clock.
+      let tzLabel = svg.querySelector("#clock-tz-label");
+      if (!tzLabel) {
+        tzLabel = document.createElementNS(ns, "text");
+        tzLabel.setAttribute("id", "clock-tz-label");
+        tzLabel.setAttribute("x", String(C.cx));   // center horizontally
+        tzLabel.setAttribute("y", String(C.cy - 130)); // just under 12, inside inner ring
+        tzLabel.setAttribute("text-anchor", "middle");
+        tzLabel.setAttribute("dominant-baseline", "middle");
+        tzLabel.setAttribute("font-size", "8");
+        tzLabel.setAttribute("fill", "#2c2c2cff");
+        tzLabel.textContent = ""; // analogClock.js will set PST/PDT
+        svg.appendChild(tzLabel);
       }
     }
   }

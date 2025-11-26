@@ -1,0 +1,322 @@
+/* Base layout */
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+  padding: 16px;
+  background: #f9fafb;
+}
+
+header {
+  margin-bottom: 16px;
+}
+
+h1 {
+  margin: 0 0 4px 0;
+  font-size: 1.25rem;
+}
+
+/* Route + status info */
+#route-info {
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+
+#status {
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+  color: #6b7280;
+}
+
+/* Main canvas container */
+#canvas {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+/* Lane containers */
+.lane {
+  margin-bottom: 24px;
+}
+
+.lane:last-child {
+  margin-bottom: 0;
+}
+
+/* Live vs non-live lanes
+   - "live": full opacity
+   - anything else (stale / synthetic / missing): muted */
+.lane-live {
+  opacity: 1;
+}
+
+.lane-nonlive {
+  opacity: 0.5;
+}
+
+/* Lane header label */
+.lane-label {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* Track + dot */
+.lane-track {
+  position: relative;
+  height: 4px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  margin-bottom: 4px;
+}
+
+.lane-dot {
+  position: absolute;
+  top: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+/* Direction-based coloring: global and symmetric */
+.lane-dot.dir-west-east {
+  background: #10b981; /* WEST → EAST = green */
+}
+
+.lane-dot.dir-east-west {
+  background: #ef4444; /* EAST → WEST = red */
+}
+
+/* Vessel label under the track */
+.vessel-label {
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+/* ----- Analog Clock Face (visuals only) ----- */
+#clockFace line,
+#clockFace line,
+#clockFace > circle,
+#clockFace #minute-face circle {
+  stroke: #374151;
+  stroke-width: 1.5;
+  fill: none;
+}
+
+/* Analog clock hand styling */
+#clock-hands line {
+  stroke-linecap: round;
+}
+
+#hand-hour {
+  stroke-width: 4;        /* thicker hour hand */
+}
+
+#hand-minute {
+  stroke-width: 2.5;      /* thinner minute hand */
+}
+
+/* Second hand color/thickness */
+#hand-second {
+  stroke-width: 1.5;
+}
+/* Mobile layout overrides */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b1120;
+  color: #e5e7eb;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Mobile header strip */
+
+#mobile-header {
+  background: #020617;
+  border-bottom: 1px solid #1f2937;
+}
+
+/* Main mobile content area */
+
+#mobile-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 8px 0 16px 0;
+}
+
+/* Make the clock behave better on small screens */
+
+#clockFace {
+  max-width: 100vw;
+  max-height: calc(100vh - 80px); /* leave space for header */
+  height: auto;
+  width: auto;
+  display: block;
+}
+
+/* Route picker sheet: hidden by default, shown on swipe-down */
+
+#mobile-header {
+  display: none;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 1rem;
+  background: #020617;
+  border-bottom: 1px solid #1f2937;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+}
+
+body.route-picker-open #mobile-header {
+  display: block;
+}
+
+/* Make the Change route UI compact when shown */
+
+#route-controls {
+  margin-top: 4px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+#route-change-btn,
+#route-select {
+  font-size: 0.9rem;
+  padding: 4px 8px;
+}
+
+/* Optional light theme: enabled when body has class "theme-light".
+   Dark theme remains the default until we toggle this class in JS. */
+
+body.theme-light {
+  background: #f9fafb;
+  color: #111827;
+}
+
+/* Light theme header and controls */
+
+body.theme-light #mobile-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+body.theme-light #mobile-header h1 {
+  color: #4b5563;
+}
+
+body.theme-light #route-info {
+  color: #111827;
+}
+
+body.theme-light #route-header-hint {
+  color: #6b7280;
+}
+
+body.theme-light #route-change-btn,
+body.theme-light #route-select,
+body.theme-light #route-done-btn {
+  border-color: #d1d5db;
+  background: #f9fafb;
+  color: #111827;
+}
+
+body.theme-light #route-change-btn:hover,
+body.theme-light #route-done-btn:hover {
+  background: #e5e7eb;
+}
+
+/* Dark theme tuning: applied when NOT in theme-light */
+
+body:not(.theme-light) {
+  background: #020617; /* deep navy/black */
+  color: #e5e7eb;
+}
+
+/* Header sheet in dark mode */
+body:not(.theme-light) #mobile-header {
+  background: #020617;
+  border-bottom: 1px solid #111827;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.75);
+}
+
+/* Title and text in dark mode */
+body:not(.theme-light) #mobile-header h1 {
+  color: #9ca3af;
+}
+
+body:not(.theme-light) #route-info {
+  color: #f9fafb;
+}
+
+body:not(.theme-light) #route-header-hint {
+  color: #9ca3af;
+}
+
+/* Buttons in dark mode */
+body:not(.theme-light) #route-change-btn,
+body:not(.theme-light) #route-select,
+body:not(.theme-light) #route-done-btn,
+body:not(.theme-light) #route-theme-toggle-btn {
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  background: #020617;
+  color: #e5e7eb;
+}
+
+body:not(.theme-light) #route-change-btn:hover,
+body:not(.theme-light) #route-done-btn:hover,
+body:not(.theme-light) #route-theme-toggle-btn:hover {
+  background: #111827;
+}
+
+/* Dark mode: ensure all clock SVG text is high-contrast and readable */
+
+body:not(.theme-light) #clockFace text {
+  fill: #f9fafb;
+  stroke: none;
+}
+
+/* If ticks/hands have text-like classes, keep them visible too */
+
+body:not(.theme-light) #clockFace .tick-label,
+body:not(.theme-light) #clockFace .hour-label,
+body:not(.theme-light) #clockFace .time-label {
+  fill: #f9fafb;
+}
+/* Dark mode: replace ferry icon with white version */
+
+body:not(.theme-light) .ferry-icon {
+  content: url("./icons/ferry-white.png");
+}
+
+/* Light mode: ensure default ferry icon shows (if class exists) */
+
+body.theme-light .ferry-icon {
+  content: url("./icons/ferry.png");
+}
+/* Dark mode: override capacity pie center fill to match background */
+
+body:not(.theme-light) #clockFace .pie-center,
+body:not(.theme-light) #clockFace circle.pie-center {
+  fill: #020617 !important;   /* same dark BG as the page */
+}
+
+/* Ensure the number inside the pie stays bright and readable */
+body:not(.theme-light) #clockFace .pie-label,
+body:not(.theme-light) #clockFace text.pie-label {
+  fill: #f9fafb !important;
+}

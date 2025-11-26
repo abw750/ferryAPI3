@@ -892,6 +892,48 @@ async function buildDotState(routeId) {
     capacityStale = true;
   }
 
+  // -------------------------------------------------------------------------
+  // TerminalID fallback via terminalsailingspace (Cannon Section 2)
+  //
+  // If, after name map + schedule-derived mapping, either terminalIdWest or
+  // terminalIdEast is still null, try to resolve IDs from the terminals
+  // payload by matching TerminalName case-insensitively.
+  //
+  // This matches the Cannon rule:
+  //   "Input: TerminalNameWest/East; Lookup: first row where TerminalName
+  //    matches (case-insensitive); Output: TerminalID."
+  // -------------------------------------------------------------------------
+  if ((terminalIdWest == null || terminalIdEast == null) && Array.isArray(terminalsPayload)) {
+    const nameWest = route.terminalNameWest
+      ? String(route.terminalNameWest).trim().toLowerCase()
+      : null;
+    const nameEast = route.terminalNameEast
+      ? String(route.terminalNameEast).trim().toLowerCase()
+      : null;
+
+    for (const row of terminalsPayload) {
+      if (!row) continue;
+
+      const tNameRaw = row.TerminalName;
+      const tId = row.TerminalID;
+
+      if (tNameRaw == null || tId == null) continue;
+
+      const tName = String(tNameRaw).trim().toLowerCase();
+
+      if (terminalIdWest == null && nameWest && tName === nameWest) {
+        terminalIdWest = Number(tId);
+      }
+      if (terminalIdEast == null && nameEast && tName === nameEast) {
+        terminalIdEast = Number(tId);
+      }
+
+      if (terminalIdWest != null && terminalIdEast != null) {
+        break;
+      }
+    }
+  }
+
   // Live vessels (may be empty or error)
   let liveVessels = [];
   let usedFallback = false;

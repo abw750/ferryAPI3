@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>WSDOT Real-time Ferry</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>WSDOT Real-Time Ferry Status</h1>
+      <div id="route-info"></div>
+      <div id="route-controls">
+        <button id="route-change-btn" type="button">Change route</button>
+        <select id="route-select" style="display: none;"></select>
+      </div>
+
+    </header>
+
+    <!-- Analog Clock Face -->
+    <svg id="clockFace" width="400" height="400" viewBox="0 0 400 400"
+        xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+    </svg>
+
+    <!-- <div id="canvas"></div> -->
+
+    <!-- Clock layers -->
+    <script src="faceRenderer.js"></script>
+    <script src="analogClock.js"></script>
+
+    <!-- Capacity pies module -->
+    <script src="capacityOverlay.js"></script>
+
+    <!-- Dock arc module -->
+    <script src="dockArcOverlay.js"></script>
+   
+    <!-- Ferry lanes module -->
+    <script src="laneOverlay.js"></script>
+
+    <!-- FerryClock scaffold (analog overlay) -->
+    <script src="ferryClock.js"></script>
+
+  </body>
+</html>

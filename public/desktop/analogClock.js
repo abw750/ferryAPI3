@@ -51,21 +51,72 @@ console.log("[analogClock] init, svg found:", !!document.getElementById("clockFa
         node.setAttribute("transform", `rotate(${deg} 200 200)`);
     }
 
-    function tick() {
+    // Return current time in Seattle (America/Los_Angeles), independent of client time zone.
+    function getSeattleTimeParts() {
         const now = new Date();
-        const s = now.getSeconds();
-        const m = now.getMinutes();
-        const h = now.getHours() % 12;
 
-        const ha = (h + m / 60) * 30;
+        const fmt = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/Los_Angeles",
+            hour: "numeric",
+            minute: "numeric",
+            second: "numeric",
+            hour12: false,
+        });
+
+        const parts = fmt.formatToParts(now);
+        let h = 0, m = 0, s = 0;
+        for (const p of parts) {
+            if (p.type === "hour") h = parseInt(p.value, 10);
+            else if (p.type === "minute") m = parseInt(p.value, 10);
+            else if (p.type === "second") s = parseInt(p.value, 10);
+        }
+
+        // Milliseconds are the same globally; we can use local ms for smooth second hand.
+        const ms = now.getMilliseconds();
+        return { h, m, s, ms };
+    }
+
+    // Return current Seattle time zone abbreviation (e.g., "PST" or "PDT").
+    function getSeattleZoneAbbrev() {
+        const now = new Date();
+        const fmt = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/Los_Angeles",
+            timeZoneName: "short",
+            hour: "numeric"
+        });
+
+        const parts = fmt.formatToParts(now);
+        for (const p of parts) {
+            if (p.type === "timeZoneName") {
+                // Typically returns "PST" or "PDT".
+                return p.value;
+            }
+        }
+        return "";
+    }
+
+    function tick() {
+        const { h, m, s, ms } = getSeattleTimeParts();
+
+        const hour12 = h % 12;
+
+        const ha = (hour12 + m / 60) * 30;
         const ma = (m + s / 60) * 6;
 
-        const sub = Math.floor((now.getMilliseconds() / 1000) * 10);
+        const sub = Math.floor((ms / 1000) * 10);
         const sAdj = s + sub / 10;
 
         setRot(hourHand, ha);
         setRot(minuteHand, ma);
         setRot(secondHand, sAdj * 6);
+
+        // Update time zone label (PST/PDT) under 12 o'clock, if present.
+        var tzNode = document.getElementById("clock-tz-label");
+        if (tzNode) {
+            const tz = getSeattleZoneAbbrev();
+            // Show only "PST" or "PDT" (Intl may sometimes return "GMT-8" in odd locales).
+            tzNode.textContent = (tz === "PST" || tz === "PDT") ? tz : tz;
+        }
     }
 
     tick();
