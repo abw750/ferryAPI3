@@ -28,6 +28,10 @@ if (!String.prototype.replaceAll) {
 const app = express();
 const PORT = process.env.PORT || 8000;
 
+app.get("/", (req, res) => {
+  res.redirect("/mobile/");
+});
+
 // ---- Static UI ----
 app.use(express.static(path.join(__dirname, "public")));
 
