@@ -105,10 +105,13 @@ console.log("[capacityOverlay] loaded");
     if (max == null || max <= 0) return;
     if (avail == null || avail < 0) return;
 
-    let frac = avail / max;
-    if (!Number.isFinite(frac)) return;
-    if (frac < 0) frac = 0;
-    if (frac > 1) frac = 1;
+    let used = max - avail;
+    if (!Number.isFinite(used)) return;
+
+    if (used < 0) used = 0;
+    if (used > max) used = max;
+
+    let frac = used / max;
 
     // Color mapping: use global FerryPalette from ferryClock.js
     const palette = window.FerryPalette;
@@ -179,21 +182,20 @@ console.log("[capacityOverlay] loaded");
     }
 
     // inner disk
-    const isLightTheme = document.body.classList.contains("theme-light");
-    const innerFill = isLightTheme ? "#ffffff" : "#020617";
-
     const inner = elNS("circle", {
       cx, cy,
       r: rInner - 1,
-      fill: innerFill,
+      class: "pie-center",
+      fill: "#ffffff",       // base (light-mode) fill; dark mode handled via CSS
       opacity: 1,
     });
     group.appendChild(inner);
 
-    // text
+    // center label
     const label = elNS("text", {
       x: cx,
       y: cy + 1,
+      class: "pie-label",
       "text-anchor": "middle",
       "dominant-baseline": "middle",
       "font-size": "10",
