@@ -286,14 +286,24 @@ function deriveCapacityForSide(options) {
 }
 
 function updateDockMetaForLane(routeId, laneKey, lane, now) {
+  // If this lane does not exist (missing/stale), do not attempt to
+  // compute dock metadata. Clear any cached dock state for this lane
+  // and return null.
+  if (!lane) {
+    if (dockStateByRoute[routeId]) {
+      delete dockStateByRoute[routeId][laneKey];
+    }
+    return null;
+  }
+
   const nowMs = now.getTime();
   const nowIso = now.toISOString();
 
   if (!dockStateByRoute[routeId]) {
     dockStateByRoute[routeId] = {};
   }
-  const routeDockState = dockStateByRoute[routeId];
 
+  const routeDockState = dockStateByRoute[routeId];
   const prev = routeDockState[laneKey] || null;
   const hadPrev = !!prev;
   const prevAtDock = prev ? !!prev.atDock : false;
@@ -439,6 +449,55 @@ function computeDotPosition(leftDockIso, etaIso, now) {
   return frac;
 }
 
+// This helper is used for "liveTerminals" routes (triangle legs).
+// It does NOT use schedule_by_route at all. Instead, it picks a vessel
+// for each lane purely from live, normalized vessellocations data,
+// based on the departure/arrival terminal IDs.
+function pickLaneVesselsFromLive(route, terminalIdWest, terminalIdEast, rawList) {
+  if (!Array.isArray(rawList) || rawList.length === 0) {
+    return { upperRaw: null, lowerRaw: null };
+  }
+
+  const norm = rawList.filter(Boolean);
+
+  const westToEast = norm
+    .filter(
+      (v) =>
+        Number(v.departingId) === Number(terminalIdWest) &&
+        Number(v.arrivingId) === Number(terminalIdEast)
+    )
+    .sort((a, b) => {
+      const posDiff =
+        (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
+      if (posDiff !== 0) return posDiff;
+      const aDep = a.scheduledDepartureIso || "";
+      const bDep = b.scheduledDepartureIso || "";
+      return aDep.localeCompare(bDep);
+    });
+
+  const eastToWest = norm
+    .filter(
+      (v) =>
+        Number(v.departingId) === Number(terminalIdEast) &&
+        Number(v.arrivingId) === Number(terminalIdWest)
+    )
+    .sort((a, b) => {
+      const posDiff =
+        (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
+      if (posDiff !== 0) return posDiff;
+      const aDep = a.scheduledDepartureIso || "";
+      const bDep = b.scheduledDepartureIso || "";
+      return aDep.localeCompare(bDep);
+    });
+
+  return {
+    // UPPER lane = west → east
+    upperRaw: westToEast[0] || null,
+    // LOWER lane = east → west
+    lowerRaw: eastToWest[0] || null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // LaneVessels derivation (Cannon Section 3)
 //
@@ -447,6 +506,7 @@ function computeDotPosition(leftDockIso, etaIso, now) {
 //
 // This does NOT touch live vessellocations data. It only looks at the schedule.
 // ---------------------------------------------------------------------------
+
 async function deriveLaneVesselsForRoute(route, terminalIdWest, now) {
   // Trip date in YYYY-MM-DD form based on "now".
   const tripDateText = now.toISOString().slice(0, 10);
@@ -547,46 +607,6 @@ function snapStaleLaneToDockIfArrived(lane, now) {
   };
 }
 
-// // Choose one vessel per direction for the selected route.
-// function pickLaneVesselsForRoute(route, terminalIdWest, terminalIdEast, rawList) {
-//   const norm = rawList.filter(Boolean);
-
-//   const westToEast = norm
-//     .filter(
-//       (v) =>
-//         v.departingId === terminalIdWest &&
-//         v.arrivingId === terminalIdEast
-//     )
-//     .sort((a, b) => {
-//       // Prefer lower VesselPositionNum, then earliest scheduled departure.
-//       const posDiff =
-//         (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
-//       if (posDiff !== 0) return posDiff;
-//       const aDep = a.scheduledDepartureIso || "";
-//       const bDep = b.scheduledDepartureIso || "";
-//       return aDep.localeCompare(bDep);
-//     });
-
-//   const eastToWest = norm
-//     .filter(
-//       (v) =>
-//         v.departingId === terminalIdEast &&
-//         v.arrivingId === terminalIdWest
-//     )
-//     .sort((a, b) => {
-//       const posDiff =
-//         (a.vesselPositionNumber || 0) - (b.vesselPositionNumber || 0);
-//       if (posDiff !== 0) return posDiff;
-//       const aDep = a.scheduledDepartureIso || "";
-//       const bDep = b.scheduledDepartureIso || "";
-//       return aDep.localeCompare(bDep);
-//     });
-
-//   return {
-//     upperRaw: westToEast[0] || null, // UPPER lane = West → East
-//     lowerRaw: eastToWest[0] || null, // LOWER lane = East → West
-//   };
-// }
 function deriveDirectionAndTerminals(raw, terminalIdWest, terminalIdEast, defaultDirection) {
   // If we have clear live terminals, prefer them.
   if (raw && raw.departingId != null && raw.arrivingId != null) {
@@ -823,7 +843,11 @@ async function buildDotState(routeId) {
   const labelWest = deriveLabel(route.terminalNameWest);
   const labelEast = deriveLabel(route.terminalNameEast);
 
+  const laneStrategy = route.laneStrategy || "schedule";
+  const hasCapacity = route.hasCapacity !== false;
+
   let { terminalIdWest, terminalIdEast } = getTerminalIdsForRoute(route);
+
 
   try {
     const tripDateText = nowIso.slice(0, 10);
@@ -946,21 +970,48 @@ async function buildDotState(routeId) {
     liveVessels = [];
   }
 
-// ---------------------------------------------------------------------------
 // NEW: Lane-vessel resolution (Cannon Section 3)
 // Instead of choosing lanes by direction, we map lanes to the vessels that
-// belong in slot 1 (upper) and slot 2 (lower), based on today's schedule.
+// belong in slot 1 (upper) and slot 2 (lower), based on today's schedule
+// or directly from live terminals for special routes.
 // ---------------------------------------------------------------------------
-const { upper: scheduledUpper, lower: scheduledLower, scheduleError } =
-  await deriveLaneVesselsForRoute(route, terminalIdWest, now);
+let scheduledUpper = null;
+let scheduledLower = null;
+let scheduleError = false;
 
-// If schedule is unusable, *then* synthetic fallback is appropriate.
-if (scheduleError || (!scheduledUpper && !scheduledLower)) {
-  return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
-}
+let upperRaw = null;
+let lowerRaw = null;
+
+if (laneStrategy === "liveTerminals") {
+  const picked = pickLaneVesselsFromLive(
+    route,
+    terminalIdWest,
+    terminalIdEast,
+    liveVessels
+  );
+
+  upperRaw = picked.upperRaw;
+  lowerRaw = picked.lowerRaw;
+
+  // For liveTerminals routes we do not derive capacity from terminalsailingspace.
+  // CrossingTime-based synthetic fallback is still allowed if no live lane can
+  // be assigned in either direction.
+  if (!upperRaw && !lowerRaw) {
+    return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
+  }
+} else {
+  const lanePlan = await deriveLaneVesselsForRoute(route, terminalIdWest, now);
+  scheduledUpper = lanePlan.upper;
+  scheduledLower = lanePlan.lower;
+  scheduleError = lanePlan.scheduleError;
+
+  // If schedule is unusable, *then* synthetic fallback is appropriate.
+  if (scheduleError || (!scheduledUpper && !scheduledLower)) {
+    return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
+  }
 
   // ---- Capacity for west/east terminals (Cannon capacity pies, hybrid rule) ----
-  if (terminalsPayload && Array.isArray(terminalsPayload)) {
+  if (hasCapacity && terminalsPayload && Array.isArray(terminalsPayload)) {
     // Choose the scheduled lane for each side based on departure terminal,
     // not lane position (upper/lower).
     let scheduledWestLane = null;
@@ -1020,7 +1071,8 @@ if (scheduleError || (!scheduledUpper && !scheduledLower)) {
       if (west && west.lastUpdated) timestamps.push(west.lastUpdated);
       if (east && east.lastUpdated) timestamps.push(east.lastUpdated);
 
-      capacityLastUpdatedIso = timestamps.length > 0 ? timestamps.sort().slice(-1)[0] : null;
+      capacityLastUpdatedIso =
+        timestamps.length > 0 ? timestamps.sort().slice(-1)[0] : null;
       capacityStale = !!(
         (west && west.isStale) ||
         (east && east.isStale) ||
@@ -1031,37 +1083,29 @@ if (scheduleError || (!scheduledUpper && !scheduledLower)) {
       capacityLastUpdatedIso = null;
       capacityStale = true;
     }
-  } else {
-    // Terminals payload missing; capacity remains null/stale.
-    capacity = null;
-    capacityLastUpdatedIso = null;
-    capacityStale = true;
   }
 
-// Load live vessels indexed by VesselID (may be empty)
-const byId = new Map();
-if (Array.isArray(liveVessels)) {
-  for (const v of liveVessels) {
-    if (v && v.vesselId != null) byId.set(v.vesselId, v);
+  // Load live vessels indexed by VesselID (may be empty)
+  const byId = new Map();
+  if (Array.isArray(liveVessels)) {
+    for (const v of liveVessels) {
+      if (v && v.vesselId != null) byId.set(v.vesselId, v);
+    }
   }
-}
 
-// Determine live raw vessels for each lane by matching scheduled vesselIds
-let upperRaw = null;
-let lowerRaw = null;
+  // Determine live raw vessels for each lane by matching scheduled vesselIds
+  if (scheduledUpper && scheduledUpper.vesselId != null) {
+    upperRaw = byId.get(scheduledUpper.vesselId) || null;
+  }
 
-if (scheduledUpper && scheduledUpper.vesselId != null) {
-  upperRaw = byId.get(scheduledUpper.vesselId) || null;
-}
+  if (scheduledLower && scheduledLower.vesselId != null) {
+    lowerRaw = byId.get(scheduledLower.vesselId) || null;
+  }
 
-if (scheduledLower && scheduledLower.vesselId != null) {
-  lowerRaw = byId.get(scheduledLower.vesselId) || null;
-}
-
-// If neither lane has a scheduled vessel OR schedule failed entirely,
-// we cannot assign lanes → synthetic fallback
-if (scheduleError || (!scheduledUpper && !scheduledLower)) {
-  return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
+  // If neither lane has a scheduled vessel → synthetic fallback
+  if (!upperRaw && !lowerRaw) {
+    return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
+  }
 }
 
   // ---- Build lanes with last-good caching ----

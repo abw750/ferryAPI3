@@ -718,6 +718,9 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
       return null;
     }
 
+    // Expose for external overlay modules (dockArcOverlay, etc.)
+    window.FerryLaneDir = laneDir;
+
     function isUnderway(lane) {
       const phase = (lane?.phase || "").toUpperCase();
       return phase === "UNDERWAY";

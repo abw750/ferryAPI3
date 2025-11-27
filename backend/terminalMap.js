@@ -3,11 +3,11 @@
 // For now this is a minimal hard coded map; later this can be driven by
 // Status_Terminals or your canon table instead of code.
 
+// WSDOT schedule_by_route is too chaotic to manage the triange route between these three terminals.
 const TERMINAL_NAME_TO_ID = {
-  
-  // Canonical SEA-BI mapping
-  "Bainbridge Island": 3,
-  "Seattle": 7
+  "Fauntleroy": 9,
+  "Vashon Island": 22,
+  "Southworth": 20,
 };
 
 // Optional: resolve terminal IDs for a route using the routedetails API.

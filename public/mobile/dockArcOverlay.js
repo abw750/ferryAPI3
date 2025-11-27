@@ -71,7 +71,7 @@ console.log("[dockArcOverlay] loaded");
     const spanAngle = frac * Math.PI * 2;
     const endAngle = startAngle + spanAngle;
 
-    const dirKey = laneDir(lane);
+    const dirKey = window.FerryLaneDir ? window.FerryLaneDir(lane) : null;
     if (!dirKey) return;
 
     const COLORS = getColors();

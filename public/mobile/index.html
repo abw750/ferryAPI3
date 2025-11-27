@@ -2,12 +2,29 @@
 
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>WSDOT Real-time Ferry</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="style.css" />
-  </head>
+<head>
+  <meta charset="UTF-8" />
+  <title>Ferry Clock</title>
+
+  <!-- Viewport and mobile meta -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#020617" />
+
+  <!-- iOS style "app" hints -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ferry Clock" />
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+
+  <!-- App icon for iOS (can reuse one of your PNGs) -->
+  <link rel="apple-touch-icon" sizes="192x192" href="/icons/ferry-192.png" />
+
+  <!-- Existing mobile stylesheet -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+
   <body>
         <!-- Mobile-first shell -->
     <div id="mobile-header">
@@ -56,5 +73,17 @@
     <!-- FerryClock scaffold (analog overlay) -->
     <script src="ferryClock.js"></script>
 
+    <!-- PWA service worker registration -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker
+            .register("/sw.js")
+            .catch(function (err) {
+              console.error("Service worker registration failed:", err);
+            });
+        });
+      }
+    </script>
   </body>
 </html>
