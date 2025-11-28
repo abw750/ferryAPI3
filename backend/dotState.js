@@ -690,9 +690,18 @@ function buildLaneFromVessel(raw, opts) {
       dockStartIsSynthetic: true,
       dockArcFraction: null,
       lastUpdatedVessels: nowIso,
-      isStale: false, // contract field present; true will be used once last-good cache is implemented
+      isStale: false,
     };
   }
+
+  // Be defensive about where the name might live.
+  // This covers both normalized fields (vesselName) and any raw WSDOT casing.
+  const safeName =
+    raw.vesselName ||
+    raw.VesselName ||
+    raw.name ||
+    raw.Name ||
+    null;
 
   const leftDockIso = raw.leftDockIso || raw.scheduledDepartureIso || null;
   const etaIso = pickArrivalTime(raw.etaIso, leftDockIso, crossingMinutes);
@@ -713,7 +722,7 @@ function buildLaneFromVessel(raw, opts) {
     laneId,
     vesselPositionNumber: positionNumber,
     vesselId: raw.vesselId,
-    vesselName: raw.vesselName || "Unknown vessel",
+    vesselName: safeName || "Unknown vessel",
     atDock,
     direction,
     departureTerminalId,
@@ -728,7 +737,7 @@ function buildLaneFromVessel(raw, opts) {
     dockStartIsSynthetic: false,
     dockArcFraction: null,
     lastUpdatedVessels: nowIso,
-    isStale: false, // default; will become true when we reuse last-good state
+    isStale: false,
   };
 }
 
@@ -830,6 +839,88 @@ function buildSyntheticState(route, terminalIdWest, terminalIdEast, now) {
 }
 
 // ---- Main entry point ----
+async function deriveNextDeparturesForLeg(route, terminalIdWest, terminalIdEast, now) {
+  if (terminalIdWest == null || terminalIdEast == null) {
+    return null;
+  }
+
+  const tripDateText = now.toISOString().slice(0, 10);
+  let data;
+  try {
+    data = await fetchDailyScheduleRaw(route.routeId, tripDateText);
+  } catch (err) {
+    console.error(
+      `Error fetching raw schedule for route ${route.routeId}:`,
+      err.message || err
+    );
+    return null;
+  }
+
+  if (!data || typeof data !== "object" || !Array.isArray(data.TerminalCombos)) {
+    return null;
+  }
+
+  const combos = data.TerminalCombos;
+  const nowMs = now.getTime();
+
+  function findNextForDirection(departId, arriveId) {
+    let best = null;
+
+    for (const combo of combos) {
+      if (!combo) continue;
+
+      const depId = combo.DepartingTerminalID ?? null;
+      const arrId = combo.ArrivingTerminalID ?? null;
+
+      if (Number(depId) !== Number(departId) || Number(arrId) !== Number(arriveId)) {
+        continue;
+      }
+
+      const times = Array.isArray(combo.Times) ? combo.Times : [];
+      for (const t of times) {
+        if (!t) continue;
+
+        const d = parseWsdotDateForTerminals(t.DepartingTime);
+        if (!d) continue;
+
+        const dMs = d.getTime();
+        if (dMs <= nowMs) continue;
+
+        if (!best || dMs < best.departureMs) {
+          best = {
+            departureMs: dMs,
+            departureTimeIso: d.toISOString(),
+            vesselName: t.VesselName ?? null,
+            vesselId: t.VesselID ?? null,
+          };
+        }
+      }
+    }
+
+    return best;
+  }
+
+  const west = findNextForDirection(terminalIdWest, terminalIdEast);
+  const east = findNextForDirection(terminalIdEast, terminalIdWest);
+
+  if (!west && !east) {
+    return null;
+  }
+
+  function clean(entry) {
+    if (!entry) return null;
+    return {
+      departureTimeIso: entry.departureTimeIso,
+      vesselName: entry.vesselName,
+      vesselId: entry.vesselId,
+    };
+  }
+
+  return {
+    west: clean(west),
+    east: clean(east),
+  };
+}
 
 async function buildDotState(routeId) {
   const route = getRouteById(routeId);
@@ -846,8 +937,9 @@ async function buildDotState(routeId) {
   const laneStrategy = route.laneStrategy || "schedule";
   const hasCapacity = route.hasCapacity !== false;
 
-  let { terminalIdWest, terminalIdEast } = getTerminalIdsForRoute(route);
+  let nextDepartures = null;
 
+  let { terminalIdWest, terminalIdEast } = getTerminalIdsForRoute(route);
 
   try {
     const tripDateText = nowIso.slice(0, 10);
@@ -994,12 +1086,12 @@ if (laneStrategy === "liveTerminals") {
   lowerRaw = picked.lowerRaw;
 
   // For liveTerminals routes we do not derive capacity from terminalsailingspace.
-  // CrossingTime-based synthetic fallback is still allowed if no live lane can
-  // be assigned in either direction.
-  if (!upperRaw && !lowerRaw) {
-    return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
-  }
+  // If we cannot assign a live vessel in either direction, we leave both lanes
+  // null and let the frontend treat the route as having no active vessels,
+  // instead of fabricating synthetic "Unknown" vessels.
+  // (upperRaw and lowerRaw will remain null here when nothing is live.)
 } else {
+
   const lanePlan = await deriveLaneVesselsForRoute(route, terminalIdWest, now);
   scheduledUpper = lanePlan.upper;
   scheduledLower = lanePlan.lower;
@@ -1234,9 +1326,20 @@ if (laneStrategy === "liveTerminals") {
     }
   }
 
+  // For triangle / liveTerminals routes, surface schedule-based next departures.
+  if (laneStrategy === "liveTerminals") {
+    nextDepartures = await deriveNextDeparturesForLeg(
+      route,
+      terminalIdWest,
+      terminalIdEast,
+      now
+    );
+  }
+
   return {
     route: {
       routeId: route.routeId,
+
       description: route.description,
       crossingTimeMinutes: route.crossingTimeMinutes,
       terminalNameWest: route.terminalNameWest,
@@ -1265,6 +1368,7 @@ if (laneStrategy === "liveTerminals") {
         },
       },
       reason,
+      nextDepartures,
     },
   };
 }

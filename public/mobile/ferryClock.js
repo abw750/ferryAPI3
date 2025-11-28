@@ -607,8 +607,11 @@ function circleDot(x, y, r, fill) {
 function renderDockArcOverlay(group, upperLane, lowerLane, now) {
   if (!group) return;
 
-  if (window.FerryDockArcOverlay &&
-      typeof window.FerryDockArcOverlay.render === "function") {
+  const hasModule =
+    window.FerryDockArcOverlay &&
+    typeof window.FerryDockArcOverlay.render === "function";
+
+  if (hasModule) {
     try {
       window.FerryDockArcOverlay.render({
         group,
@@ -617,11 +620,18 @@ function renderDockArcOverlay(group, upperLane, lowerLane, now) {
         now,
         geometry: window.FerryGeometry || null,
       });
+
+      // Module handled drawing; no fallback.
+      return;
     } catch (err) {
       console.error("[ferryClock] FerryDockArcOverlay.render error:", err);
+      // fall through to fallback below
     }
+  } else {
+    console.warn("[ferryClock] FerryDockArcOverlay module missing; using fallback arcs");
   }
 
+  // Only reach here if module is missing or failed → use legacy fallback.
   console.warn("[ferryClock] DockArcOverlay fallback path used");
 
   if (upperLane) drawDockArcForLane(group, upperLane, "upper", now);
@@ -629,7 +639,6 @@ function renderDockArcOverlay(group, upperLane, lowerLane, now) {
 }
 
 renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
-
 
     // Capacity pies: west / east auto slots (Cannon pies) - render from capacityOverlay.js
     function renderCapacityOverlay(capacityGroup, state) {
@@ -817,11 +826,16 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
           addShipIcon(group, xp, barY);
 
         } else {
-          // docked: dot at origin side, showing next-transit direction color
+          // Not underway: dot only when lane is actually at the dock.
+          // If neither underway nor atDock, we treat this as a scheduled-only
+          // case: show the track and time label, but no dot/ship.
           const originIsWest = dirKey === "ltr";
           const originX = originIsWest ? xL : xR;
-          group.appendChild(circleDot(originX, barY, 5.5, scheme.dot));
-          addShipIcon(group, originX, barY);
+
+          if (lane.atDock) {
+            group.appendChild(circleDot(originX, barY, 5.5, scheme.dot));
+            addShipIcon(group, originX, barY);
+          }
         }
 
         // ---- labels (simplified: sched at origin while docked, ETA at dest while underway) ----

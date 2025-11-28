@@ -56,34 +56,34 @@ const ROUTES = [
     laneStrategy: "schedule",
     },
 
-  // Vashon triangle virtual pair: Fauntleroy <-> Vashon
-  {
-    routeId: 13,
-    description: "Fauntleroy / Vashon Island",
-    terminalNameWest: "Fauntleroy",
-    terminalNameEast: "Vashon Island",
-    crossingTimeMinutes: 20,
-    laneStrategy: "liveTerminals",
-    hasCapacity: false,
-  },
-  {
-    routeId: 14,
-    description: "Vashon Island / Southworth",
-    terminalNameWest: "Vashon Island",
-    terminalNameEast: "Southworth",
-    crossingTimeMinutes: 15,
-    laneStrategy: "liveTerminals",
-    hasCapacity: false,
-  },
-  {
-    routeId: 15,
-    description: "Southworth / Fauntleroy",
-    terminalNameWest: "Southworth",
-    terminalNameEast: "Fauntleroy",
-    crossingTimeMinutes: 25,
-    laneStrategy: "liveTerminals",
-    hasCapacity: false,
-  },
+  // // Vashon triangle virtual pair: Fauntleroy <-> Vashon
+  // {
+  //   routeId: 13,
+  //   description: "Fauntleroy / Vashon Island",
+  //   terminalNameWest: "Fauntleroy",
+  //   terminalNameEast: "Vashon Island",
+  //   crossingTimeMinutes: 20,
+  //   laneStrategy: "liveTerminals",
+  //   hasCapacity: false,
+  // },
+  // {
+  //   routeId: 14,
+  //   description: "Vashon Island / Southworth",
+  //   terminalNameWest: "Vashon Island",
+  //   terminalNameEast: "Southworth",
+  //   crossingTimeMinutes: 15,
+  //   laneStrategy: "liveTerminals",
+  //   hasCapacity: false,
+  // },
+  // {
+  //   routeId: 15,
+  //   description: "Southworth / Fauntleroy",
+  //   terminalNameWest: "Southworth",
+  //   terminalNameEast: "Fauntleroy",
+  //   crossingTimeMinutes: 25,
+  //   laneStrategy: "liveTerminals",
+  //   hasCapacity: false,
+  // },
 ];
 
 function getRoutes() {

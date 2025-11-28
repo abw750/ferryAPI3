@@ -1,5 +1,5 @@
-// tools/recordTacomaWenatchee.js
-// Standalone recorder for Tacoma and Wenatchee vessel snapshots.
+// tools/recordCathlametKittitasSealth.js
+// Standalone recorder for Cathlamet, Kittitas, Sealth vessel snapshots.
 // Calls WSDOT once per minute and writes JSONL to ./data/.
 
 const fs = require("fs");
@@ -11,7 +11,7 @@ const BASE_URL = "https://www.wsdot.wa.gov/Ferries/API/Vessels/rest/vessellocati
 
 // how many samples and how far apart
 const SAMPLE_COUNT = 240;        // number of polls
-const INTERVAL_MS = 30_000;     // 60 seconds between polls
+const INTERVAL_MS = 30_000;     // 30 seconds between polls
 
 // ensure ./data exists
 const dataDir = path.join(__dirname, "..", "data");
@@ -70,9 +70,9 @@ async function pollOnce(index) {
       throw new Error("Unexpected payload shape (expected array)");
     }
 
-    // Filter to Tacoma and Wenatchee only
+    // Filter to Cathlamet, Kittitas, Sealth only
     const filtered = raw.filter(
-      v => v && (v.VesselName === "Cathlamet" || v.VesselName === "Kittitas" || vVesselName === "Sealth")
+      v => v && (v.VesselName === "Cathlamet" || v.VesselName === "Kittitas" || v.VesselName === "Sealth")
     );
 
     const record = {
