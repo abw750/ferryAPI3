@@ -37,6 +37,42 @@
     dotRtl:    COLOR_DOT_RTL,
   };
 
+    // --- persistent route selection (localStorage) ---
+  const ROUTE_STORAGE_KEY = "ferryClock.selectedRouteId";
+
+  function loadStoredRouteId(routes) {
+    try {
+      const raw = window.localStorage
+        ? window.localStorage.getItem(ROUTE_STORAGE_KEY)
+        : null;
+      if (!raw) return null;
+      const id = Number(raw);
+      if (!Number.isFinite(id) || id <= 0) return null;
+      return routes.some((r) => r.routeId === id) ? id : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function storeSelectedRouteId(routeId) {
+    try {
+      if (!window.localStorage) return;
+      if (!routeId) return;
+      window.localStorage.setItem(ROUTE_STORAGE_KEY, String(routeId));
+    } catch (_err) {
+      // ignore storage errors
+    }
+  }
+
+  // --- header open/close helpers (route picker sheet) ---
+  function openRoutePicker() {
+    document.body.classList.add("route-picker-open");
+  }
+
+  function closeRoutePicker() {
+    document.body.classList.remove("route-picker-open");
+  }
+
   const ICON_SRC  = "/icons/ferry.png";
   const SHIP_W    = 18;    // px
   const SHIP_H    = 18;    // px
@@ -113,13 +149,11 @@
       return;
     }
 
-
-    // Clear any existing options.
+    // Clear any existing <option>s but keep the element hidden.
     while (routeSelectEl.firstChild) {
       routeSelectEl.removeChild(routeSelectEl.firstChild);
     }
 
-    // Populate selector with descriptions from routeConfig.
     routes.forEach((route) => {
       const opt = document.createElement("option");
       opt.value = String(route.routeId);
@@ -127,15 +161,64 @@
       routeSelectEl.appendChild(opt);
     });
 
-    // Establish initial routeId (persisting until next boot).
+    // Build a simple button-based route menu inside the header instead of a dropdown.
+    const header = document.getElementById("mobile-header");
+    let menu = document.getElementById("route-menu");
+    if (!menu && header) {
+      menu = document.createElement("div");
+      menu.id = "route-menu";
+      header.appendChild(menu);
+    }
+    if (menu) {
+      menu.innerHTML = "";
+      routes.forEach((route) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = route.description || `Route ${route.routeId}`;
+        btn.dataset.routeId = String(route.routeId);
+        btn.style.display = "block";
+        btn.style.margin = "4px auto";
+        btn.style.padding = "4px 8px";
+        btn.addEventListener("click", () => {
+          const idNum = Number(route.routeId);
+          if (!idNum || idNum === currentRouteId) {
+            closeRoutePicker();
+            return;
+          }
+          currentRouteId = idNum;
+          storeSelectedRouteId(currentRouteId);
+          if (routeSelectEl) {
+            routeSelectEl.value = String(currentRouteId);
+          }
+          dispatchRouteSelected(currentRouteId);
+
+          if (routeInfoEl) {
+            routeInfoEl.textContent = route.description || "";
+          }
+
+          if (layersRef) {
+            refreshDotState(layersRef);
+          }
+
+          closeRoutePicker();
+        });
+        menu.appendChild(btn);
+      });
+    }
+
+    // Establish initial routeId, preferring persisted selection.
     if (routes.length > 0) {
       if (currentRouteId == null) {
-        currentRouteId = routes[0].routeId;
+        const stored = loadStoredRouteId(routes);
+        if (stored != null) {
+          currentRouteId = stored;
+        } else {
+          currentRouteId = routes[0].routeId;
+        }
       }
       routeSelectEl.value = String(currentRouteId);
       dispatchRouteSelected(currentRouteId);
 
-      // Update header route description.
       if (routeInfoEl) {
         const currentRoute = routes.find((r) => r.routeId === currentRouteId);
         routeInfoEl.textContent = currentRoute
@@ -144,44 +227,34 @@
       }
     }
 
-    // Button toggles the dropdown visibility.
+    // "Change route" now just opens the route picker sheet (no dropdown).
     routeChangeBtnEl.addEventListener("click", () => {
-      if (!routeSelectEl) return;
-      const isHidden =
-        routeSelectEl.style.display === "none" ||
-        routeSelectEl.style.display === "";
-      routeSelectEl.style.display = isHidden ? "inline-block" : "none";
+      openRoutePicker();
     });
 
-    // When the user selects a different route, update currentRouteId
-    // and refresh the clock, then hide the dropdown again.
+    // We keep the <select> change handler for debugging / non-UI use,
+    // but the dropdown itself stays hidden.
     routeSelectEl.addEventListener("change", () => {
       const value = routeSelectEl.value;
       const newRouteId = value ? Number(value) : null;
 
-      // If no change, just hide dropdown.
       if (!newRouteId || newRouteId === currentRouteId) {
-        routeSelectEl.style.display = "none";
         return;
       }
 
       currentRouteId = newRouteId;
+      storeSelectedRouteId(currentRouteId);
       dispatchRouteSelected(currentRouteId);
 
-      // Update header description with pending refresh note.
       if (routeInfoEl) {
         const currentRoute = routes.find((r) => r.routeId === currentRouteId);
         const desc = currentRoute ? (currentRoute.description || "") : "";
         routeInfoEl.textContent = desc + " (pending refresh...)";
       }
 
-      // Trigger refresh immediately (does not block UI).
       if (layersRef) {
         refreshDotState(layersRef);
       }
-
-      // Hide dropdown right away.
-      routeSelectEl.style.display = "none";
     });
   }
 
@@ -956,56 +1029,80 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
       }, 100);
     });
   }
-    // Mobile long-press gesture: open/close route picker header.
+
+  // Mobile gesture + header controls
   document.addEventListener("DOMContentLoaded", function () {
     var clock = document.getElementById("clockFace");
-    var header = document.getElementById("mobile-header");
-    var LONG_PRESS_MS = 700;
-    var pressTimer = null;
+    var doneBtn = document.getElementById("route-done-btn");
+    var themeBtn = document.getElementById("route-theme-toggle-btn");
 
-    function openRoutePicker() {
-      document.body.classList.add("route-picker-open");
-    }
-
-    function closeRoutePicker() {
-      document.body.classList.remove("route-picker-open");
-    }
-
-    function startPress() {
-      if (pressTimer !== null) return;
-      pressTimer = setTimeout(function () {
-        openRoutePicker();
-        pressTimer = null;
-      }, LONG_PRESS_MS);
-    }
-
-    function cancelPress() {
-      if (pressTimer !== null) {
-        clearTimeout(pressTimer);
-        pressTimer = null;
-      }
-    }
+    // --- swipe-down gesture on the clock to open route picker ---
+    var touchStartY = null;
+    var touchStartX = null;
+    var swipeHandled = false;
+    var SWIPE_THRESHOLD = 40; // px minimal downward move
 
     if (clock) {
-      clock.addEventListener("mousedown", startPress);
-      clock.addEventListener("touchstart", startPress, { passive: true });
+      clock.addEventListener(
+        "touchstart",
+        function (e) {
+          if (!e.touches || e.touches.length === 0) return;
+          var t = e.touches[0];
+          touchStartY = t.clientY;
+          touchStartX = t.clientX;
+          swipeHandled = false;
+        },
+        { passive: true }
+      );
 
-      clock.addEventListener("mouseup", cancelPress);
-      clock.addEventListener("mouseleave", cancelPress);
-      clock.addEventListener("touchend", cancelPress);
-      clock.addEventListener("touchcancel", cancelPress);
+      clock.addEventListener(
+        "touchmove",
+        function (e) {
+          if (touchStartY == null || !e.touches || e.touches.length === 0) {
+            return;
+          }
+          var t = e.touches[0];
+          var dy = t.clientY - touchStartY;
+          var dx = t.clientX - touchStartX;
+
+          // downward, mostly vertical swipe
+          if (!swipeHandled && dy > SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
+            openRoutePicker();
+            swipeHandled = true;
+          }
+        },
+        { passive: true }
+      );
+
+      clock.addEventListener(
+        "touchend",
+        function () {
+          touchStartY = null;
+          touchStartX = null;
+          swipeHandled = false;
+        },
+        { passive: true }
+      );
+
+      clock.addEventListener(
+        "touchcancel",
+        function () {
+          touchStartY = null;
+          touchStartX = null;
+          swipeHandled = false;
+        },
+        { passive: true }
+      );
     }
 
-    // Clicking the Done button in the header closes the picker and returns to clock.
-    var doneBtn = document.getElementById("route-done-btn");
+    // Done button closes the picker and returns to clock view.
     if (doneBtn) {
       doneBtn.addEventListener("click", function () {
         closeRoutePicker();
       });
     }
-    // Light/Dark theme toggle in the header.
-    var themeBtn = document.getElementById("route-theme-toggle-btn");
 
+    // --- Light/Dark theme toggle in the header. ---
     function applyTheme(isLight) {
       // Apply or remove the light theme class on <body>.
       document.body.classList.toggle("theme-light", isLight);
@@ -1038,7 +1135,11 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
 
           // Set both href and xlink:href for compatibility.
           img.setAttribute("href", targetHref);
-          img.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", targetHref);
+          img.setAttributeNS(
+            "http://www.w3.org/1999/xlink",
+            "xlink:href",
+            targetHref
+          );
         });
       }
     }
@@ -1053,7 +1154,6 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
         applyTheme(nowLight);
       });
     }
-
   });
 
 })();
