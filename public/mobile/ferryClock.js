@@ -8,6 +8,9 @@
   let routeChangeBtnEl = null;
   let routeInfoEl = null;
   let layersRef = null;
+  let scheduleToggleBtnEl = null;
+  let schedulePanelEl = null;
+
 
   // --- clock geometry ---
   const CX = 200;
@@ -105,6 +108,13 @@
 
     layersRef = layers;
 
+    // Schedule toggle button and panel
+    scheduleToggleBtnEl = document.getElementById("schedule-toggle-btn");
+    schedulePanelEl = document.getElementById("schedule-panel");
+    if (scheduleToggleBtnEl && schedulePanelEl) {
+      scheduleToggleBtnEl.addEventListener("click", onScheduleToggleClick);
+    }
+
     try {
       console.log("[ferryClock] fetching routes from /api/routes");
       const routes = await fetchRoutes();
@@ -137,6 +147,19 @@
     } catch (err) {
       console.error("[ferryClock] dispatchRouteSelected error:", err);
     }
+  }
+
+    function formatSeattleTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return "";
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return fmt.format(d);
   }
 
   function initRouteControls(routes, layers) {
@@ -269,6 +292,119 @@
       throw new Error("Invalid routes payload from /api/routes");
     }
     return data.routes;
+  }
+
+    async function fetchSchedule(routeId) {
+    const id = routeId || currentRouteId || 5;
+    const res = await fetch(`/api/schedule?routeId=${encodeURIComponent(id)}`);
+    if (!res.ok) {
+      throw new Error("Failed to load schedule: HTTP " + res.status);
+    }
+    return res.json();
+  }
+
+  function renderSchedule(schedule) {
+    if (!schedulePanelEl) return;
+
+    schedulePanelEl.innerHTML = "";
+
+    if (!schedule || (!Array.isArray(schedule.west) && !Array.isArray(schedule.east))) {
+      schedulePanelEl.textContent = "No schedule data.";
+      return;
+    }
+
+    const west = Array.isArray(schedule.west) ? schedule.west : [];
+    const east = Array.isArray(schedule.east) ? schedule.east : [];
+
+    if (!west.length && !east.length) {
+      schedulePanelEl.textContent = "No remaining sailings today.";
+      return;
+    }
+
+    const table = document.createElement("table");
+    table.className = "schedule-table";
+
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+
+    const westName =
+      (schedule.route && schedule.route.terminalNameWest) || "West";
+    const eastName =
+      (schedule.route && schedule.route.terminalNameEast) || "East";
+
+    const thWest = document.createElement("th");
+    thWest.textContent = westName;
+    const thEast = document.createElement("th");
+    thEast.textContent = eastName;
+
+    headerRow.appendChild(thWest);
+    headerRow.appendChild(thEast);
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    const maxRows = Math.max(west.length, east.length);
+
+    for (let i = 0; i < maxRows; i++) {
+      const row = document.createElement("tr");
+
+      const wCell = document.createElement("td");
+      const eCell = document.createElement("td");
+
+      if (west[i]) {
+        const time = formatSeattleTime(west[i].departureTimeIso);
+        const name = west[i].vesselName || "";
+        wCell.textContent = name ? `${time} – ${name}` : time;
+      } else {
+        wCell.textContent = "";
+      }
+
+      if (east[i]) {
+        const time = formatSeattleTime(east[i].departureTimeIso);
+        const name = east[i].vesselName || "";
+        eCell.textContent = name ? `${time} – ${name}` : time;
+      } else {
+        eCell.textContent = "";
+      }
+
+      row.appendChild(wCell);
+      row.appendChild(eCell);
+      tbody.appendChild(row);
+    }
+
+    table.appendChild(tbody);
+    schedulePanelEl.appendChild(table);
+  }
+
+    async function onScheduleToggleClick() {
+    if (!scheduleToggleBtnEl || !schedulePanelEl) return;
+
+    const isHidden =
+      schedulePanelEl.style.display === "" ||
+      schedulePanelEl.style.display === "none";
+
+    if (isHidden) {
+      // Show schedule: fetch and render
+      try {
+        scheduleToggleBtnEl.disabled = true;
+        scheduleToggleBtnEl.textContent = "Loading schedule...";
+        const schedule = await fetchSchedule(currentRouteId);
+        renderSchedule(schedule);
+        schedulePanelEl.style.display = "block";
+        scheduleToggleBtnEl.textContent = "Hide ferry schedule";
+      } catch (err) {
+        console.error("[ferryClock] schedule load error:", err);
+        schedulePanelEl.textContent = "Error loading schedule.";
+        schedulePanelEl.style.display = "block";
+        scheduleToggleBtnEl.textContent = "Hide ferry schedule";
+      } finally {
+        scheduleToggleBtnEl.disabled = false;
+      }
+    } else {
+      // Hide schedule
+      schedulePanelEl.style.display = "none";
+      scheduleToggleBtnEl.textContent = "Show ferry schedule";
+    }
   }
 
   async function refreshDotState(layers) {

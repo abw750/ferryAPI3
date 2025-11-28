@@ -3,7 +3,7 @@ const express = require("express");
 const path = require("path");
 const axios = require("axios");
 
-const { getRoutes } = require("./backend/routeConfig");
+const { getRoutes, getRouteById } = require("./backend/routeConfig");
 const { buildDotState } = require("./backend/dotState");
 const {
   fetchDailyScheduleRaw,
@@ -93,6 +93,23 @@ app.get("/api/routes", (req, res) => {
   res.json({ routes: getRoutes() });
 });
 
+// ---- Remaining schedule for today (per route) ----
+app.get("/api/schedule", async (req, res) => {
+  try {
+    const routeId = Number(req.query.routeId) || 5;
+    const schedule = await buildScheduleForRoute(routeId);
+
+    if (!schedule) {
+      return res.status(404).json({ error: "No schedule for this route" });
+    }
+
+    res.json(schedule);
+  } catch (err) {
+    console.error("Error in /api/schedule:", err);
+    res.status(500).json({ error: "Internal error building schedule" });
+  }
+});
+
 // ---- Dot state (still mock behind buildDotState) ----
 app.get("/api/dot-state", async (req, res) => {
   const routeId = parseInt(req.query.routeId, 10) || 5;
@@ -108,6 +125,142 @@ app.get("/api/dot-state", async (req, res) => {
     res.status(500).json({ error: "Internal error building dot state" });
   }
 });
+
+// Simple WSDOT /Date(…)/ parser for schedule timestamps.
+function parseWsdotDate(raw) {
+  if (!raw) return null;
+  const m = /\/Date\((\d+)([+-]\d{4})?\)\//.exec(String(raw));
+  if (!m) return null;
+  const ms = parseInt(m[1], 10);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms);
+}
+
+async function buildScheduleForRoute(routeId) {
+  const route = getRouteById(routeId);
+  if (!route) return null;
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const tripDateText = now.toISOString().slice(0, 10);
+
+  const raw = await fetchDailyScheduleRaw(route.routeId, tripDateText);
+  // Expect shape: { TerminalCombos: [ ... ] }
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.TerminalCombos)) {
+    return null;
+  }
+
+  const combos = raw.TerminalCombos;
+
+  // Derive terminalIdWest / terminalIdEast from DepartingTerminalName,
+  // using same logic pattern as buildDotState.
+  let terminalIdWest = null;
+  let terminalIdEast = null;
+
+  const nameWest = route.terminalNameWest
+    ? String(route.terminalNameWest).trim().toLowerCase()
+    : null;
+  const nameEast = route.terminalNameEast
+    ? String(route.terminalNameEast).trim().toLowerCase()
+    : null;
+
+  for (const combo of combos) {
+    if (!combo) continue;
+
+    const depNameRaw = combo.DepartingTerminalName;
+    const depId = combo.DepartingTerminalID;
+
+    if (depNameRaw == null || depId == null) continue;
+
+    const depName = String(depNameRaw).trim().toLowerCase();
+
+    if (nameWest && !terminalIdWest && depName === nameWest) {
+      terminalIdWest = Number(depId);
+    }
+    if (nameEast && !terminalIdEast && depName === nameEast) {
+      terminalIdEast = Number(depId);
+    }
+
+    if (terminalIdWest != null && terminalIdEast != null) {
+      break;
+    }
+  }
+
+  if (terminalIdWest == null || terminalIdEast == null) {
+    // Cannot confidently classify directions, bail out.
+    return null;
+  }
+
+  function collectDepartures(fromId, toId) {
+    const result = [];
+    for (const combo of combos) {
+      if (!combo) continue;
+
+      const depId = combo.DepartingTerminalID ?? null;
+      const arrId = combo.ArrivingTerminalID ?? null;
+
+      if (Number(depId) !== Number(fromId) || Number(arrId) !== Number(toId)) {
+        continue;
+      }
+
+      const times = Array.isArray(combo.Times) ? combo.Times : [];
+      for (const t of times) {
+        if (!t) continue;
+
+        if (t.IsCancelled === true) continue;
+
+        const d = parseWsdotDate(t.DepartingTime);
+        if (!d) continue;
+
+        const dMs = d.getTime();
+        if (dMs <= nowMs) continue; // only remainder of today
+
+        result.push({
+          departureTimeIso: d.toISOString(),
+          vesselName: t.VesselName ?? null,
+          vesselId: t.VesselID ?? null,
+        });
+      }
+    }
+
+    result.sort((a, b) => {
+      const aMs = Date.parse(a.departureTimeIso) || 0;
+      const bMs = Date.parse(b.departureTimeIso) || 0;
+      return aMs - bMs;
+    });
+
+    return result;
+  }
+
+  const west = collectDepartures(terminalIdWest, terminalIdEast);
+  const east = collectDepartures(terminalIdEast, terminalIdWest);
+
+  if (!west.length && !east.length) {
+    return {
+      route: {
+        routeId: route.routeId,
+        description: route.description,
+        terminalNameWest: route.terminalNameWest,
+        terminalNameEast: route.terminalNameEast,
+      },
+      date: tripDateText,
+      west: [],
+      east: [],
+    };
+  }
+
+  return {
+    route: {
+      routeId: route.routeId,
+      description: route.description,
+      terminalNameWest: route.terminalNameWest,
+      terminalNameEast: route.terminalNameEast,
+    },
+    date: tripDateText,
+    west,
+    east,
+  };
+}
 
 // DEBUG: inspect raw WSDOT schedule payload
 app.get("/api/debug/schedule", async (req, res) => {

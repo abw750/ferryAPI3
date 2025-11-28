@@ -21,7 +21,7 @@ if (!fs.existsSync(dataDir)) {
 
 // filename based on start time
 const startIso = new Date().toISOString().replace(/[:.]/g, "-");
-const outFile = path.join(dataDir, `Cathlamet_Kittitas_Sealth_${startIso}.jsonl`);
+const outFile = path.join(dataDir, `tacoma_wenatchee_${startIso}.jsonl`);
 
 if (!API_KEY) {
   console.error("ERROR: WSDOT_API_KEY is not set in the environment.");
@@ -72,7 +72,7 @@ async function pollOnce(index) {
 
     // Filter to Tacoma and Wenatchee only
     const filtered = raw.filter(
-      v => v && (v.VesselName === "Cathlamet" || v.VesselName === "Kittitas" || vVesselName === "Sealth")
+      v => v && (v.VesselName === "Tacoma" || v.VesselName === "Wenatchee")
     );
 
     const record = {
@@ -83,7 +83,7 @@ async function pollOnce(index) {
     fs.appendFileSync(outFile, JSON.stringify(record) + "\n", "utf8");
 
     console.log(
-      `  -> recorded ${filtered.length} rows for Cathlamet/Kittitas/Sealth`
+      `  -> recorded ${filtered.length} rows for Tacoma/Wenatchee`
     );
   } catch (err) {
     console.error(`  !!! error: ${err.message}`);
