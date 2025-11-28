@@ -322,3 +322,59 @@ body:not(.theme-light) #clockFace .pie-label,
 body:not(.theme-light) #clockFace text.pie-label {
   fill: #f9fafb !important;
 }
+
+/* Schedule toggle button and panel */
+
+#schedule-toggle-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  background: #020617;
+  color: #e5e7eb;
+}
+
+body.theme-light #schedule-toggle-btn {
+  border-color: #d1d5db;
+  background: #f9fafb;
+  color: #111827;
+}
+
+#schedule-toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#schedule-panel {
+  display: none;
+  margin-top: 8px;
+  width: 100%;
+  max-width: 400px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* Schedule table: two columns, west (left) and east (right) */
+
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.schedule-table th,
+.schedule-table td {
+  padding: 4px 6px;
+  text-align: center;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.schedule-table th {
+  font-weight: 600;
+}
+
+body.theme-light .schedule-table th,
+body.theme-light .schedule-table td {
+  border-bottom-color: #e5e7eb;
+}

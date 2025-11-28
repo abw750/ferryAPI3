@@ -138,22 +138,46 @@ function parseWsdotDate(raw) {
 
 async function buildScheduleForRoute(routeId) {
   const route = getRouteById(routeId);
-  if (!route) return null;
+  if (!route) {
+    console.warn("[schedule] No route for id", routeId);
+    return null;
+  }
 
   const now = new Date();
   const nowMs = now.getTime();
   const tripDateText = now.toISOString().slice(0, 10);
 
   const raw = await fetchDailyScheduleRaw(route.routeId, tripDateText);
-  // Expect shape: { TerminalCombos: [ ... ] }
-  if (!raw || typeof raw !== "object" || !Array.isArray(raw.TerminalCombos)) {
-    return null;
+
+  let combos;
+  if (raw && typeof raw === "object" && Array.isArray(raw.TerminalCombos)) {
+    combos = raw.TerminalCombos;
+  } else if (Array.isArray(raw)) {
+    combos = raw;
+  } else {
+    console.warn("[schedule] Unexpected schedule shape for route", routeId, {
+      typeofRaw: typeof raw,
+      isArray: Array.isArray(raw)
+    });
+    combos = [];
   }
 
-  const combos = raw.TerminalCombos;
+  const base = {
+    route: {
+      routeId: route.routeId,
+      description: route.description,
+      terminalNameWest: route.terminalNameWest,
+      terminalNameEast: route.terminalNameEast
+    },
+    date: tripDateText,
+    west: [],
+    east: []
+  };
 
-  // Derive terminalIdWest / terminalIdEast from DepartingTerminalName,
-  // using same logic pattern as buildDotState.
+  if (!combos.length) {
+    return base;
+  }
+
   let terminalIdWest = null;
   let terminalIdEast = null;
 
@@ -177,6 +201,7 @@ async function buildScheduleForRoute(routeId) {
     if (nameWest && !terminalIdWest && depName === nameWest) {
       terminalIdWest = Number(depId);
     }
+
     if (nameEast && !terminalIdEast && depName === nameEast) {
       terminalIdEast = Number(depId);
     }
@@ -187,12 +212,16 @@ async function buildScheduleForRoute(routeId) {
   }
 
   if (terminalIdWest == null || terminalIdEast == null) {
-    // Cannot confidently classify directions, bail out.
-    return null;
+    console.warn("[schedule] Could not resolve terminal IDs for route", routeId, {
+      nameWest,
+      nameEast
+    });
+    return base;
   }
 
   function collectDepartures(fromId, toId) {
     const result = [];
+
     for (const combo of combos) {
       if (!combo) continue;
 
@@ -204,21 +233,21 @@ async function buildScheduleForRoute(routeId) {
       }
 
       const times = Array.isArray(combo.Times) ? combo.Times : [];
+
       for (const t of times) {
         if (!t) continue;
-
         if (t.IsCancelled === true) continue;
 
         const d = parseWsdotDate(t.DepartingTime);
         if (!d) continue;
 
         const dMs = d.getTime();
-        if (dMs <= nowMs) continue; // only remainder of today
+        if (dMs <= nowMs) continue;
 
         result.push({
           departureTimeIso: d.toISOString(),
           vesselName: t.VesselName ?? null,
-          vesselId: t.VesselID ?? null,
+          vesselId: t.VesselID ?? null
         });
       }
     }
@@ -235,30 +264,10 @@ async function buildScheduleForRoute(routeId) {
   const west = collectDepartures(terminalIdWest, terminalIdEast);
   const east = collectDepartures(terminalIdEast, terminalIdWest);
 
-  if (!west.length && !east.length) {
-    return {
-      route: {
-        routeId: route.routeId,
-        description: route.description,
-        terminalNameWest: route.terminalNameWest,
-        terminalNameEast: route.terminalNameEast,
-      },
-      date: tripDateText,
-      west: [],
-      east: [],
-    };
-  }
-
   return {
-    route: {
-      routeId: route.routeId,
-      description: route.description,
-      terminalNameWest: route.terminalNameWest,
-      terminalNameEast: route.terminalNameEast,
-    },
-    date: tripDateText,
+    ...base,
     west,
-    east,
+    east
   };
 }
 
