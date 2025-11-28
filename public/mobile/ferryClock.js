@@ -108,6 +108,15 @@
 
     layersRef = layers;
 
+    layersRef = layers;
+
+    // Keyboard: "r" to mimic swipe-down (open route picker) on desktop
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "r" || ev.key === "R") {
+        openRoutePicker();
+      }
+    });
+
     // Schedule toggle button and panel
     scheduleToggleBtnEl = document.getElementById("schedule-toggle-btn");
     schedulePanelEl = document.getElementById("schedule-panel");
@@ -167,10 +176,11 @@
     routeChangeBtnEl = document.getElementById("route-change-btn");
     routeInfoEl = document.getElementById("route-info");
 
-    if (!routeSelectEl || !routeChangeBtnEl) {
-      console.warn("[ferryClock] route controls not found in DOM");
+    if (!routeSelectEl) {
+      console.warn("[ferryClock] route select not found in DOM");
       return;
     }
+
 
     // Clear any existing <option>s but keep the element hidden.
     while (routeSelectEl.firstChild) {
@@ -205,14 +215,16 @@
         btn.addEventListener("click", () => {
           const idNum = Number(route.routeId);
           if (!idNum || idNum === currentRouteId) {
-            closeRoutePicker();
             return;
           }
+
           currentRouteId = idNum;
           storeSelectedRouteId(currentRouteId);
+
           if (routeSelectEl) {
             routeSelectEl.value = String(currentRouteId);
           }
+
           dispatchRouteSelected(currentRouteId);
 
           if (routeInfoEl) {
@@ -223,8 +235,10 @@
             refreshDotState(layersRef);
           }
 
-          closeRoutePicker();
+          // Do NOT close the picker here.
+          // User will hit "Done" when satisfied.
         });
+
         menu.appendChild(btn);
       });
     }
@@ -250,10 +264,13 @@
       }
     }
 
-    // "Change route" now just opens the route picker sheet (no dropdown).
-    routeChangeBtnEl.addEventListener("click", () => {
-      openRoutePicker();
-    });
+      // "Change route" button is optional and only opens the picker if present.
+      if (routeChangeBtnEl) {
+        routeChangeBtnEl.addEventListener("click", () => {
+          openRoutePicker();
+        });
+      }
+
 
     // We keep the <select> change handler for debugging / non-UI use,
     // but the dropdown itself stays hidden.

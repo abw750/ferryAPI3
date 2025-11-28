@@ -1,5 +1,18 @@
 /* public/mobile/style.css */
 
+html, body {
+  overscroll-behavior-y: contain;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  touch-action: pan-x; /* allow horizontal gestures only */
+}
+
+body.route-picker-open #route-change-btn {
+  display: none;
+}
+
 /* Base layout */
 body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
