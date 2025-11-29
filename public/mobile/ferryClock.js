@@ -234,6 +234,10 @@ function initRouteControls(routes, layers) {
 
         // Update button colors (selected vs unselected)
         applyRouteMenuSelection();
+
+        // If the schedule is open, reload it for the newly selected route
+        reloadScheduleIfOpen();
+
         // Do NOT close the picker here. User will hit "Done" when satisfied.
       });
 
@@ -384,7 +388,7 @@ function renderSchedule(schedule) {
   // ---- service-day (2:00 a.m.)
   function getServiceDayKey(input) {
     const dt = input instanceof Date ? new Date(input.getTime()) : new Date(input);
-    if (dt.getHours() < 2) dt.setDate(dt.getDate() - 1);
+    if (dt.getHours() < 3) dt.setDate(dt.getDate() - 1);
     dt.setHours(0, 0, 0, 0);
     return dt.getTime();
   }
@@ -417,8 +421,12 @@ function renderSchedule(schedule) {
 
   combined.sort((a, b) => a.departureMs - b.departureMs);
 
-  // Keep only >= now
-  const future = combined.filter(s => s.departureMs >= nowMs);
+  // Allow a grace window so the last few sailings do not disappear immediately
+  // when the clock ticks past their departure time.
+  const GRACE_MINUTES = 30; // adjust as you like
+  const cutoffMs = nowMs - GRACE_MINUTES * 60 * 1000;
+
+  const future = combined.filter(s => s.departureMs >= cutoffMs);
 
   if (!future.length) {
     schedulePanelEl.textContent = "No remaining sailings.";
@@ -546,6 +554,36 @@ function renderSchedule(schedule) {
   table.appendChild(tbody);
   schedulePanelEl.appendChild(table);
 }
+
+  async function reloadScheduleIfOpen() {
+    if (
+      !scheduleToggleBtnEl ||
+      !schedulePanelEl ||
+      !scheduleToggleBtnEl.classList.contains("schedule-open")
+    ) {
+      return;
+    }
+
+    if (currentRouteId == null) {
+      return;
+    }
+
+    try {
+      scheduleToggleBtnEl.disabled = true;
+      scheduleToggleBtnEl.textContent = "Loading schedule...";
+
+      const schedule = await fetchSchedule(currentRouteId);
+      renderSchedule(schedule);
+
+      // Keep the button in "open" state
+      scheduleToggleBtnEl.textContent = "Hide ferry schedule";
+    } catch (err) {
+      console.error("[ferryClock] schedule reload error:", err);
+      schedulePanelEl.textContent = "Error loading schedule. Please try again.";
+    } finally {
+      scheduleToggleBtnEl.disabled = false;
+    }
+  }
 
     async function onScheduleToggleClick() {
     if (!scheduleToggleBtnEl || !schedulePanelEl) return;
@@ -1507,5 +1545,4 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
       });
     }
   });
-
 })();
