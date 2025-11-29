@@ -516,20 +516,38 @@ function renderSchedule(schedule) {
         scheduleToggleBtnEl.textContent = "Hide ferry schedule";
         scheduleToggleBtnEl.classList.add("schedule-open");
 
-        const changeBtn = document.getElementById("schedule-change-route-btn");
-        if (changeBtn) changeBtn.classList.add("schedule-open");
-      } catch (err) {
-        console.error("[ferryClock] schedule load error:", err);
+        // Force inline styles so mobile/PWA can't ignore them
+        scheduleToggleBtnEl.style.backgroundColor = "#168a1a";
+        scheduleToggleBtnEl.style.color = "#ffffff";
+        scheduleToggleBtnEl.style.borderRadius = "999px";
 
-        schedulePanelEl.textContent = "Error loading schedule.";
+        const changeBtn = document.getElementById("schedule-change-route-btn");
+        if (changeBtn) {
+          changeBtn.classList.add("schedule-open");
+          changeBtn.style.backgroundColor = "#168a1a";
+          changeBtn.style.color = "#ffffff";
+          changeBtn.style.borderRadius = "999px";
+        }
+      } catch (err) {
+        console.error("[ferryClock] schedule toggle error:", err);
+        schedulePanelEl.textContent =
+          "Error loading schedule. Please try again.";
         schedulePanelEl.style.display = "block";
 
         // Still show as "open" when error is visible
         scheduleToggleBtnEl.textContent = "Hide ferry schedule";
         scheduleToggleBtnEl.classList.add("schedule-open");
+        scheduleToggleBtnEl.style.backgroundColor = "#b91c1c";
+        scheduleToggleBtnEl.style.color = "#ffffff";
+        scheduleToggleBtnEl.style.borderRadius = "999px";
 
         const changeBtn = document.getElementById("schedule-change-route-btn");
-        if (changeBtn) changeBtn.classList.add("schedule-open");
+        if (changeBtn) {
+          changeBtn.classList.add("schedule-open");
+          changeBtn.style.backgroundColor = "#b91c1c";
+          changeBtn.style.color = "#ffffff";
+          changeBtn.style.borderRadius = "999px";
+        }
       } finally {
         scheduleToggleBtnEl.disabled = false;
       }
@@ -539,8 +557,18 @@ function renderSchedule(schedule) {
       scheduleToggleBtnEl.textContent = "Show ferry schedule";
       scheduleToggleBtnEl.classList.remove("schedule-open");
 
+      // Clear inline styles back to CSS defaults
+      scheduleToggleBtnEl.style.backgroundColor = "";
+      scheduleToggleBtnEl.style.color = "";
+      scheduleToggleBtnEl.style.borderRadius = "";
+
       const changeBtn = document.getElementById("schedule-change-route-btn");
-      if (changeBtn) changeBtn.classList.remove("schedule-open");
+      if (changeBtn) {
+        changeBtn.classList.remove("schedule-open");
+        changeBtn.style.backgroundColor = "";
+        changeBtn.style.color = "";
+        changeBtn.style.borderRadius = "";
+      }
     }
   }
 
