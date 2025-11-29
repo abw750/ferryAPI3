@@ -170,131 +170,182 @@
     return fmt.format(d);
   }
 
-  function initRouteControls(routes, layers) {
-    routeSelectEl = document.getElementById("route-select");
-    routeChangeBtnEl = document.getElementById("route-change-btn");
-    routeInfoEl = document.getElementById("route-info");
+function initRouteControls(routes, layers) {
+  routeSelectEl = document.getElementById("route-select");
+  routeChangeBtnEl = document.getElementById("route-change-btn");
+  routeInfoEl = document.getElementById("route-info");
 
-    if (!routeSelectEl) {
-      console.warn("[ferryClock] route select not found in DOM");
-      return;
-    }
+  if (!routeSelectEl) {
+    console.warn("[ferryClock] route select not found in DOM");
+    return;
+  }
 
+  // Clear any existing <option>s but keep the element hidden.
+  while (routeSelectEl.firstChild) {
+    routeSelectEl.removeChild(routeSelectEl.firstChild);
+  }
 
-    // Clear any existing <option>s but keep the element hidden.
-    while (routeSelectEl.firstChild) {
-      routeSelectEl.removeChild(routeSelectEl.firstChild);
-    }
+  routes.forEach((route) => {
+    const opt = document.createElement("option");
+    opt.value = String(route.routeId);
+    opt.textContent = route.description || `Route ${route.routeId}`;
+    routeSelectEl.appendChild(opt);
+  });
 
+  // Build a simple button-based route menu inside the header instead of a dropdown.
+  const header = document.getElementById("mobile-header");
+  let menu = document.getElementById("route-menu");
+  if (!menu && header) {
+    menu = document.createElement("div");
+    menu.id = "route-menu";
+    header.appendChild(menu);
+  }
+
+  if (menu) {
+    menu.innerHTML = "";
     routes.forEach((route) => {
-      const opt = document.createElement("option");
-      opt.value = String(route.routeId);
-      opt.textContent = route.description || `Route ${route.routeId}`;
-      routeSelectEl.appendChild(opt);
-    });
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = route.description || `Route ${route.routeId}`;
+      btn.dataset.routeId = String(route.routeId);
 
-    // Build a simple button-based route menu inside the header instead of a dropdown.
-    const header = document.getElementById("mobile-header");
-    let menu = document.getElementById("route-menu");
-    if (!menu && header) {
-      menu = document.createElement("div");
-      menu.id = "route-menu";
-      header.appendChild(menu);
-    }
-    if (menu) {
-      menu.innerHTML = "";
-      routes.forEach((route) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = route.description || `Route ${route.routeId}`;
-        btn.dataset.routeId = String(route.routeId);
-        btn.style.display = "block";
-        btn.style.margin = "4px auto";
-        btn.style.padding = "4px 8px";
-        btn.addEventListener("click", () => {
-          const idNum = Number(route.routeId);
-          if (!idNum || idNum === currentRouteId) {
-            return;
-          }
-
-          currentRouteId = idNum;
-          storeSelectedRouteId(currentRouteId);
-
-          if (routeSelectEl) {
-            routeSelectEl.value = String(currentRouteId);
-          }
-
-          dispatchRouteSelected(currentRouteId);
-
-          if (routeInfoEl) {
-            routeInfoEl.textContent = route.description || "";
-          }
-
-          if (layersRef) {
-            refreshDotState(layersRef);
-          }
-
-          // Do NOT close the picker here.
-          // User will hit "Done" when satisfied.
-        });
-
-        menu.appendChild(btn);
-      });
-    }
-
-    // Establish initial routeId, preferring persisted selection.
-    if (routes.length > 0) {
-      if (currentRouteId == null) {
-        const stored = loadStoredRouteId(routes);
-        if (stored != null) {
-          currentRouteId = stored;
-        } else {
-          currentRouteId = routes[0].routeId;
+      btn.addEventListener("click", () => {
+        const idNum = Number(route.routeId);
+        if (!idNum || idNum === currentRouteId) {
+          return;
         }
-      }
-      routeSelectEl.value = String(currentRouteId);
-      dispatchRouteSelected(currentRouteId);
 
-      if (routeInfoEl) {
-        const currentRoute = routes.find((r) => r.routeId === currentRouteId);
-        routeInfoEl.textContent = currentRoute
-          ? (currentRoute.description || "")
-          : "";
-      }
-    }
+        currentRouteId = idNum;
+        storeSelectedRouteId(currentRouteId);
 
-      // "Change route" button is optional and only opens the picker if present.
-      if (routeChangeBtnEl) {
-        routeChangeBtnEl.addEventListener("click", () => {
-          openRoutePicker();
-        });
-      }
+        if (routeSelectEl) {
+          routeSelectEl.value = String(currentRouteId);
+        }
 
-    // We keep the <select> change handler for debugging / non-UI use,
-    // but the dropdown itself stays hidden.
-    routeSelectEl.addEventListener("change", () => {
-      const value = routeSelectEl.value;
-      const newRouteId = value ? Number(value) : null;
+        dispatchRouteSelected(currentRouteId);
 
-      if (!newRouteId || newRouteId === currentRouteId) {
-        return;
-      }
+        if (routeInfoEl) {
+          routeInfoEl.textContent = route.description || "";
+        }
 
-      currentRouteId = newRouteId;
-      storeSelectedRouteId(currentRouteId);
-      dispatchRouteSelected(currentRouteId);
+        if (layersRef) {
+          refreshDotState(layersRef);
+        }
 
-      if (routeInfoEl) {
-        const currentRoute = routes.find((r) => r.routeId === currentRouteId);
-        const desc = currentRoute ? (currentRoute.description || "") : "";
-        routeInfoEl.textContent = desc + " (pending refresh...)";
-      }
+        // Update button colors (selected vs unselected)
+        applyRouteMenuSelection();
+        // Do NOT close the picker here. User will hit "Done" when satisfied.
+      });
 
-      if (layersRef) {
-        refreshDotState(layersRef);
+      menu.appendChild(btn);
+    });
+  }
+
+  // Helper to style all route buttons as ovals and color by selection.
+  function applyRouteMenuSelection() {
+    if (!menu) return;
+    const buttons = menu.querySelectorAll("button[data-route-id]");
+    buttons.forEach((btnEl) => {
+      const id = Number(btnEl.dataset.routeId);
+
+      // Base pill style
+      btnEl.style.display = "block";
+      btnEl.style.margin = "6px 0";
+      btnEl.style.padding = "10px 18px";
+      btnEl.style.display = "block";           // vertical stack
+      btnEl.style.width = "auto";             // shrink to content
+      btnEl.style.margin = "6px auto";        // center horizontally, vertical gap
+      btnEl.style.whiteSpace = "nowrap";      // keep text on one line
+      btnEl.style.borderRadius = "999px";     // pill shape
+      btnEl.style.textAlign = "center";
+      btnEl.style.border = "1px solid #000000";
+      btnEl.style.fontSize = "1rem";
+      btnEl.style.cursor = "pointer";
+
+      if (id === currentRouteId) {
+        // Selected → green
+        btnEl.style.backgroundColor = "#168a1a";
+        btnEl.style.color = "#ffffff";
+ } else {
+        // Not selected → black, border depends on theme
+        btnEl.style.backgroundColor = "#000000";
+        btnEl.style.color = "#ffffff";
+
+        const isLight = document.body.classList.contains("theme-light");
+
+        if (isLight) {
+          // Light mode: keep black border
+          btnEl.style.border = "1px solid #000000";
+        } else {
+          // Dark mode: white border for contrast
+          btnEl.style.border = "1px solid #ffffff";
+        }
       }
     });
   }
+
+  // Establish initial routeId, preferring persisted selection.
+  if (routes.length > 0) {
+    if (currentRouteId == null) {
+      const stored = loadStoredRouteId(routes);
+      if (stored != null) {
+        currentRouteId = stored;
+      } else {
+        currentRouteId = routes[0].routeId;
+      }
+    }
+    routeSelectEl.value = String(currentRouteId);
+    dispatchRouteSelected(currentRouteId);
+
+    if (routeInfoEl) {
+      const currentRoute = routes.find((r) => r.routeId === currentRouteId);
+      routeInfoEl.textContent = currentRoute
+        ? (currentRoute.description || "")
+        : "";
+    }
+  }
+
+  // Apply initial button styling now that currentRouteId is known.
+  if (menu) {
+    applyRouteMenuSelection();
+  }
+
+  // "Change route" button is optional and only opens the picker if present.
+  if (routeChangeBtnEl) {
+    routeChangeBtnEl.addEventListener("click", () => {
+      openRoutePicker();
+    });
+  }
+
+  // We keep the <select> change handler for debugging / non-UI use,
+  // but the dropdown itself stays hidden.
+  routeSelectEl.addEventListener("change", () => {
+    const value = routeSelectEl.value;
+    const newRouteId = value ? Number(value) : null;
+
+    if (!newRouteId || newRouteId === currentRouteId) {
+      return;
+    }
+
+    currentRouteId = newRouteId;
+    storeSelectedRouteId(currentRouteId);
+    dispatchRouteSelected(currentRouteId);
+
+    if (routeInfoEl) {
+      const currentRoute = routes.find((r) => r.routeId === currentRouteId);
+      const desc = currentRoute ? (currentRoute.description || "") : "";
+      routeInfoEl.textContent = desc + " (pending refresh.)";
+    }
+
+    if (layersRef) {
+      refreshDotState(layersRef);
+    }
+
+    // Keep route buttons in sync when selection changes via <select>
+    applyRouteMenuSelection();
+  });
+}
+
 
   // ---------- backend calls (mirror dotApp.js contract) ----------
   async function fetchRoutes() {

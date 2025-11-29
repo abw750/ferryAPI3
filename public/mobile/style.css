@@ -301,6 +301,13 @@ body:not(.theme-light) #route-theme-toggle-btn {
   background: #020617;
   color: #e5e7eb;
 }
+/* Dark mode: make Light/Dark toggle + Done white with black text */
+body:not(.theme-light) #route-done-btn,
+body:not(.theme-light) #route-theme-toggle-btn {
+  background: #ffffff;
+  color: #2343e2;
+  border-color: #ffffff;
+}
 
 body:not(.theme-light) #route-change-btn:hover,
 body:not(.theme-light) #route-done-btn:hover,
