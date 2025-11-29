@@ -305,15 +305,22 @@ body:not(.theme-light) #route-theme-toggle-btn {
 body:not(.theme-light) #route-done-btn,
 body:not(.theme-light) #route-theme-toggle-btn {
   background: #ffffff;
-  color: #2343e2;
+  color: #010310;
   border-color: #ffffff;
 }
 
 body:not(.theme-light) #route-change-btn:hover,
 body:not(.theme-light) #route-done-btn:hover,
 body:not(.theme-light) #route-theme-toggle-btn:hover {
-  background: #111827;
+  background: #7e8084;
 }
+/* Dark mode: match pill size to light-mode buttons */
+body:not(.theme-light) #route-theme-toggle-btn,
+body:not(.theme-light) #route-done-btn {
+  padding: 8px 14px;          /* same as light mode */
+  border-radius: 999px;        /* same as light mode */
+}
+
 
 /* Dark mode: ensure all clock SVG text is high-contrast and readable */
 
@@ -369,6 +376,26 @@ body.theme-light #schedule-toggle-btn {
   border-color: #d1d5db;
   background: #f9fafb;
   color: #111827;
+}
+
+/* Light mode: make Light/Dark toggle + Done buttons pill-shaped */
+body.theme-light #route-theme-toggle-btn,
+body.theme-light #route-done-btn {
+  border-radius: 999px;
+  padding: 8px 14px;      /* same sizing used in dark mode */
+  border: 1px solid #d1d5db;
+}
+/* Light mode: make the 'Dark mode' toggle button black */
+body.theme-light #route-theme-toggle-btn {
+  background: #000000;
+  color: #ffffff;
+  border-color: #000000;
+}
+/* Light mode: hover turns the black "Dark mode" button grey */
+body.theme-light #route-theme-toggle-btn:hover {
+  background: #6b6a6a;
+  border-color: #444444;
+  color: #ffffff;
 }
 
 #schedule-toggle-btn:disabled {
