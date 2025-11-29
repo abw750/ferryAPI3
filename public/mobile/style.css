@@ -397,6 +397,12 @@ body.theme-light .schedule-table td {
   color: white;
 }
 
+#schedule-change-route-btn.schedule-open {
+  background-color: #168a1a;
+  color: white;
+  border-radius: 999px;
+  border: 1px solid #136f16;
+}
 /* Make Change route button match the Hide Schedule button when open */
 body:not(.theme-light) #schedule-change-route-btn,
 body.theme-light #schedule-change-route-btn {
@@ -408,4 +414,11 @@ body.theme-light #schedule-change-route-btn {
   background-color: #168a1a; /* same green */
   color: white;
   border-radius: 999px;
+}
+/* Force schedule-open button color in PWA/mobile */
+#schedule-toggle-btn.schedule-open,
+#schedule-change-route-btn.schedule-open {
+  background-color: #168a1a !important;
+  color: white !important;
+  border-color: #168a1a !important;
 }
