@@ -136,11 +136,15 @@ function parseWsdotDate(raw) {
   return new Date(ms);
 }
 
-function formatLocalYmd(date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+function formatPacificYmd(date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  // en-CA with those options returns "YYYY-MM-DD"
+  return formatter.format(date);
 }
 
 async function buildScheduleForRoute(routeId) {
@@ -150,29 +154,20 @@ async function buildScheduleForRoute(routeId) {
     return null;
   }
 
-  // --- local helpers ---
-  function formatLocalYmd(d) {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
   const now = new Date();
 
-  // Fetch TODAY + TOMORROW schedules (unfiltered).
-  const todayYmd = formatLocalYmd(now);
+  // Fetch TODAY + TOMORROW schedules (Pacific calendar days, unfiltered).
+  const todayYmd = formatPacificYmd(now);
 
   const tomorrow = new Date(now.getTime());
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowYmd = formatLocalYmd(tomorrow);
+  const tomorrowYmd = formatPacificYmd(tomorrow);
 
   const [rawToday, rawTomorrow] = await Promise.all([
     fetchDailyScheduleRaw(route.routeId, todayYmd),
     fetchDailyScheduleRaw(route.routeId, tomorrowYmd),
   ]);
 
-  // Function to extract TerminalCombos reliably
   function extractCombos(raw) {
     if (!raw) return [];
     if (Array.isArray(raw)) return raw;
@@ -188,42 +183,88 @@ async function buildScheduleForRoute(routeId) {
       routeId: route.routeId,
       description: route.description,
       terminalNameWest: route.terminalNameWest,
-      terminalNameEast: route.terminalNameEast
+      terminalNameEast: route.terminalNameEast,
     },
+    // Label: Pacific "today"
     date: todayYmd,
     west: [],
     east: [],
   };
 
-  // Resolve terminal IDs once using TODAY’s combos
-  let terminalIdWest = null;
-  let terminalIdEast = null;
-
-  const nameWest = route.terminalNameWest.trim().toLowerCase();
-  const nameEast = route.terminalNameEast.trim().toLowerCase();
-
-  for (const combo of combosToday) {
-    if (!combo) continue;
-    const depName = String(combo.DepartingTerminalName || "").trim().toLowerCase();
-    const depId = combo.DepartingTerminalID;
-
-    if (!terminalIdWest && depName === nameWest) terminalIdWest = Number(depId);
-    if (!terminalIdEast && depName === nameEast) terminalIdEast = Number(depId);
-    if (terminalIdWest && terminalIdEast) break;
-  }
-
-  if (!terminalIdWest || !terminalIdEast) {
-    console.warn("[schedule] Could not resolve terminal IDs for route", routeId);
+  if (!combosToday.length && !combosTomorrow.length) {
     return base;
   }
 
-  // Extract all departures from both days into unified lists
+  let terminalIdWest = null;
+  let terminalIdEast = null;
+
+  const nameWest = route.terminalNameWest
+    ? String(route.terminalNameWest).trim().toLowerCase()
+    : null;
+  const nameEast = route.terminalNameEast
+    ? String(route.terminalNameEast).trim().toLowerCase()
+    : null;
+
+  // Prefer to resolve terminal IDs from today's combos
+  for (const combo of combosToday) {
+    if (!combo) continue;
+    const depNameRaw = combo.DepartingTerminalName;
+    const depId = combo.DepartingTerminalID;
+
+    if (depNameRaw == null || depId == null) continue;
+
+    const depName = String(depNameRaw).trim().toLowerCase();
+
+    if (nameWest && !terminalIdWest && depName === nameWest) {
+      terminalIdWest = Number(depId);
+    }
+    if (nameEast && !terminalIdEast && depName === nameEast) {
+      terminalIdEast = Number(depId);
+    }
+
+    if (terminalIdWest != null && terminalIdEast != null) {
+      break;
+    }
+  }
+
+  // Fallback: resolve from tomorrow's combos if still missing
+  if (terminalIdWest == null || terminalIdEast == null) {
+    for (const combo of combosTomorrow) {
+      if (!combo) continue;
+      const depNameRaw = combo.DepartingTerminalName;
+      const depId = combo.DepartingTerminalID;
+
+      if (depNameRaw == null || depId == null) continue;
+
+      const depName = String(depNameRaw).trim().toLowerCase();
+
+      if (nameWest && !terminalIdWest && depName === nameWest) {
+        terminalIdWest = Number(depId);
+      }
+      if (nameEast && !terminalIdEast && depName === nameEast) {
+        terminalIdEast = Number(depId);
+      }
+
+      if (terminalIdWest != null && terminalIdEast != null) {
+        break;
+      }
+    }
+  }
+
+  if (terminalIdWest == null || terminalIdEast == null) {
+    console.warn("[schedule] Could not resolve terminal IDs for route", routeId, {
+      nameWest,
+      nameEast,
+    });
+    return base;
+  }
+
   function collectDepartures(fromId, toId, combos) {
     const result = [];
     for (const combo of combos) {
-      if (!combo) return;
-      if (combo.DepartingTerminalID !== fromId) continue;
-      if (combo.ArrivingTerminalID !== toId) continue;
+      if (!combo) continue;
+      if (Number(combo.DepartingTerminalID) !== Number(fromId)) continue;
+      if (Number(combo.ArrivingTerminalID) !== Number(toId)) continue;
 
       const times = Array.isArray(combo.Times) ? combo.Times : [];
       for (const t of times) {
@@ -251,11 +292,13 @@ async function buildScheduleForRoute(routeId) {
     ...collectDepartures(terminalIdEast, terminalIdWest, combosTomorrow),
   ];
 
-  // Sort chronologically
-  westAll.sort((a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso));
-  eastAll.sort((a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso));
+  westAll.sort(
+    (a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso)
+  );
+  eastAll.sort(
+    (a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso)
+  );
 
-  // Return everything; client will filter by service-day + 12-hour rule
   return {
     ...base,
     west: westAll,
