@@ -301,19 +301,25 @@ body:not(.theme-light) #route-theme-toggle-btn {
   background: #020617;
   color: #e5e7eb;
 }
+
 /* Dark mode: make Light/Dark toggle + Done white with black text */
 body:not(.theme-light) #route-done-btn,
 body:not(.theme-light) #route-theme-toggle-btn {
-  background: #ffffff;
-  color: #010310;
-  border-color: #ffffff;
+  background: #ffffff !important;
+  color: #000000 !important;
+  border-color: #ffffff !important;
 }
 
-body:not(.theme-light) #route-change-btn:hover,
-body:not(.theme-light) #route-done-btn:hover,
-body:not(.theme-light) #route-theme-toggle-btn:hover {
+/* Dark mode hover states */
+body:not(.theme-light) #route-change-btn:hover {
   background: #7e8084;
 }
+
+body:not(.theme-light) #route-done-btn:hover,
+body:not(.theme-light) #route-theme-toggle-btn:hover {
+  background: #e5e7eb !important;
+}
+
 /* Dark mode: match pill size to light-mode buttons */
 body:not(.theme-light) #route-theme-toggle-btn,
 body:not(.theme-light) #route-done-btn {

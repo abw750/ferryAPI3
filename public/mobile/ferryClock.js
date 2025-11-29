@@ -449,17 +449,28 @@ function renderSchedule(schedule) {
 
   // Final linear list: today first, then tomorrow
   const finalList = todaySection.concat(extendedTomorrow);
-
   const nextAvailable = finalList.length ? finalList[0].departureMs : null;
 
   // Header row only once
-  const headerDiv = document.createElement("div");
-  headerDiv.id = "schedule-header";
-  headerDiv.style.display = "flex";
-  headerDiv.style.flexDirection = "row";
-  headerDiv.style.justifyContent = "space-between";
-  headerDiv.style.alignItems = "center";
-  headerDiv.style.padding = "6px 0";
+const headerDiv = document.createElement("div");
+headerDiv.id = "schedule-header";
+headerDiv.style.display = "flex";
+headerDiv.style.flexDirection = "row";
+headerDiv.style.justifyContent = "center";
+headerDiv.style.alignItems = "center";
+
+// Light grey background bar
+headerDiv.style.background = "#474747ff";
+
+// Vertical padding to give the bar height
+headerDiv.style.padding = "8px 0";
+
+// Space below the bar before the schedule list
+headerDiv.style.marginBottom = "6px";
+
+// Make the bar slightly rounded
+headerDiv.style.borderRadius = "6px";
+
 
   const titleSpan = document.createElement("div");
   const headerText =
@@ -473,6 +484,10 @@ function renderSchedule(schedule) {
   changeBtn.type = "button";
   changeBtn.id = "schedule-change-route-btn";
   changeBtn.textContent = "Change route";
+
+  // Add horizontal space between route title and button
+  changeBtn.style.marginLeft = "50px"; // or "12px" if you want a bigger gap
+
   changeBtn.addEventListener("click", () => openRoutePicker());
   headerDiv.appendChild(changeBtn);
 
