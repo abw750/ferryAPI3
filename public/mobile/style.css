@@ -391,3 +391,21 @@ body.theme-light .schedule-table th,
 body.theme-light .schedule-table td {
   border-bottom-color: #e5e7eb;
 }
+
+#schedule-toggle-btn.schedule-open {
+  background-color: #168a1a; /* green */
+  color: white;
+}
+
+/* Make Change route button match the Hide Schedule button when open */
+body:not(.theme-light) #schedule-change-route-btn,
+body.theme-light #schedule-change-route-btn {
+  border-radius: 999px;
+}
+
+#schedule-change-route-btn.schedule-open,
+.schedule-open #schedule-change-route-btn {
+  background-color: #168a1a; /* same green */
+  color: white;
+  border-radius: 999px;
+}

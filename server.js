@@ -136,6 +136,13 @@ function parseWsdotDate(raw) {
   return new Date(ms);
 }
 
+function formatLocalYmd(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 async function buildScheduleForRoute(routeId) {
   const route = getRouteById(routeId);
   if (!route) {
@@ -143,24 +150,38 @@ async function buildScheduleForRoute(routeId) {
     return null;
   }
 
-  const now = new Date();
-  const nowMs = now.getTime();
-  const tripDateText = now.toISOString().slice(0, 10);
-
-  const raw = await fetchDailyScheduleRaw(route.routeId, tripDateText);
-
-  let combos;
-  if (raw && typeof raw === "object" && Array.isArray(raw.TerminalCombos)) {
-    combos = raw.TerminalCombos;
-  } else if (Array.isArray(raw)) {
-    combos = raw;
-  } else {
-    console.warn("[schedule] Unexpected schedule shape for route", routeId, {
-      typeofRaw: typeof raw,
-      isArray: Array.isArray(raw)
-    });
-    combos = [];
+  // --- local helpers ---
+  function formatLocalYmd(d) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
   }
+
+  const now = new Date();
+
+  // Fetch TODAY + TOMORROW schedules (unfiltered).
+  const todayYmd = formatLocalYmd(now);
+
+  const tomorrow = new Date(now.getTime());
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowYmd = formatLocalYmd(tomorrow);
+
+  const [rawToday, rawTomorrow] = await Promise.all([
+    fetchDailyScheduleRaw(route.routeId, todayYmd),
+    fetchDailyScheduleRaw(route.routeId, tomorrowYmd),
+  ]);
+
+  // Function to extract TerminalCombos reliably
+  function extractCombos(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (Array.isArray(raw.TerminalCombos)) return raw.TerminalCombos;
+    return [];
+  }
+
+  const combosToday = extractCombos(rawToday);
+  const combosTomorrow = extractCombos(rawTomorrow);
 
   const base = {
     route: {
@@ -169,105 +190,76 @@ async function buildScheduleForRoute(routeId) {
       terminalNameWest: route.terminalNameWest,
       terminalNameEast: route.terminalNameEast
     },
-    date: tripDateText,
+    date: todayYmd,
     west: [],
-    east: []
+    east: [],
   };
 
-  if (!combos.length) {
-    return base;
-  }
-
+  // Resolve terminal IDs once using TODAY’s combos
   let terminalIdWest = null;
   let terminalIdEast = null;
 
-  const nameWest = route.terminalNameWest
-    ? String(route.terminalNameWest).trim().toLowerCase()
-    : null;
-  const nameEast = route.terminalNameEast
-    ? String(route.terminalNameEast).trim().toLowerCase()
-    : null;
+  const nameWest = route.terminalNameWest.trim().toLowerCase();
+  const nameEast = route.terminalNameEast.trim().toLowerCase();
 
-  for (const combo of combos) {
+  for (const combo of combosToday) {
     if (!combo) continue;
-
-    const depNameRaw = combo.DepartingTerminalName;
+    const depName = String(combo.DepartingTerminalName || "").trim().toLowerCase();
     const depId = combo.DepartingTerminalID;
 
-    if (depNameRaw == null || depId == null) continue;
-
-    const depName = String(depNameRaw).trim().toLowerCase();
-
-    if (nameWest && !terminalIdWest && depName === nameWest) {
-      terminalIdWest = Number(depId);
-    }
-
-    if (nameEast && !terminalIdEast && depName === nameEast) {
-      terminalIdEast = Number(depId);
-    }
-
-    if (terminalIdWest != null && terminalIdEast != null) {
-      break;
-    }
+    if (!terminalIdWest && depName === nameWest) terminalIdWest = Number(depId);
+    if (!terminalIdEast && depName === nameEast) terminalIdEast = Number(depId);
+    if (terminalIdWest && terminalIdEast) break;
   }
 
-  if (terminalIdWest == null || terminalIdEast == null) {
-    console.warn("[schedule] Could not resolve terminal IDs for route", routeId, {
-      nameWest,
-      nameEast
-    });
+  if (!terminalIdWest || !terminalIdEast) {
+    console.warn("[schedule] Could not resolve terminal IDs for route", routeId);
     return base;
   }
 
-  function collectDepartures(fromId, toId) {
+  // Extract all departures from both days into unified lists
+  function collectDepartures(fromId, toId, combos) {
     const result = [];
-
     for (const combo of combos) {
-      if (!combo) continue;
-
-      const depId = combo.DepartingTerminalID ?? null;
-      const arrId = combo.ArrivingTerminalID ?? null;
-
-      if (Number(depId) !== Number(fromId) || Number(arrId) !== Number(toId)) {
-        continue;
-      }
+      if (!combo) return;
+      if (combo.DepartingTerminalID !== fromId) continue;
+      if (combo.ArrivingTerminalID !== toId) continue;
 
       const times = Array.isArray(combo.Times) ? combo.Times : [];
-
       for (const t of times) {
-        if (!t) continue;
-        if (t.IsCancelled === true) continue;
-
+        if (!t || t.IsCancelled) continue;
         const d = parseWsdotDate(t.DepartingTime);
         if (!d) continue;
-
-        const dMs = d.getTime();
-        if (dMs <= nowMs) continue;
 
         result.push({
           departureTimeIso: d.toISOString(),
           vesselName: t.VesselName ?? null,
-          vesselId: t.VesselID ?? null
+          vesselId: t.VesselID ?? null,
         });
       }
     }
-
-    result.sort((a, b) => {
-      const aMs = Date.parse(a.departureTimeIso) || 0;
-      const bMs = Date.parse(b.departureTimeIso) || 0;
-      return aMs - bMs;
-    });
-
     return result;
   }
 
-  const west = collectDepartures(terminalIdWest, terminalIdEast);
-  const east = collectDepartures(terminalIdEast, terminalIdWest);
+  const westAll = [
+    ...collectDepartures(terminalIdWest, terminalIdEast, combosToday),
+    ...collectDepartures(terminalIdWest, terminalIdEast, combosTomorrow),
+  ];
 
+  const eastAll = [
+    ...collectDepartures(terminalIdEast, terminalIdWest, combosToday),
+    ...collectDepartures(terminalIdEast, terminalIdWest, combosTomorrow),
+  ];
+
+  // Sort chronologically
+  westAll.sort((a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso));
+  eastAll.sort((a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso));
+
+  // Return everything; client will filter by service-day + 12-hour rule
   return {
     ...base,
-    west,
-    east
+    west: westAll,
+    east: eastAll,
   };
 }
 

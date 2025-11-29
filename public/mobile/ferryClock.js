@@ -11,7 +11,6 @@
   let scheduleToggleBtnEl = null;
   let schedulePanelEl = null;
 
-
   // --- clock geometry ---
   const CX = 200;
   const CY = 200;
@@ -271,7 +270,6 @@
         });
       }
 
-
     // We keep the <select> change handler for debugging / non-UI use,
     // but the dropdown itself stays hidden.
     routeSelectEl.addEventListener("change", () => {
@@ -320,78 +318,183 @@
     return res.json();
   }
 
-  function renderSchedule(schedule) {
-    if (!schedulePanelEl) return;
+function renderSchedule(schedule) {
+  if (!schedulePanelEl) return;
+  schedulePanelEl.innerHTML = "";
 
-    schedulePanelEl.innerHTML = "";
-
-    if (!schedule || (!Array.isArray(schedule.west) && !Array.isArray(schedule.east))) {
-      schedulePanelEl.textContent = "No schedule data.";
-      return;
-    }
-
-    const west = Array.isArray(schedule.west) ? schedule.west : [];
-    const east = Array.isArray(schedule.east) ? schedule.east : [];
-
-    if (!west.length && !east.length) {
-      schedulePanelEl.textContent = "No remaining sailings today.";
-      return;
-    }
-
-    const table = document.createElement("table");
-    table.className = "schedule-table";
-
-    const thead = document.createElement("thead");
-    const headerRow = document.createElement("tr");
-
-    const westName =
-      (schedule.route && schedule.route.terminalNameWest) || "West";
-    const eastName =
-      (schedule.route && schedule.route.terminalNameEast) || "East";
-
-    const thWest = document.createElement("th");
-    thWest.textContent = westName;
-    const thEast = document.createElement("th");
-    thEast.textContent = eastName;
-
-    headerRow.appendChild(thWest);
-    headerRow.appendChild(thEast);
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    const maxRows = Math.max(west.length, east.length);
-
-    for (let i = 0; i < maxRows; i++) {
-      const row = document.createElement("tr");
-
-      const wCell = document.createElement("td");
-      const eCell = document.createElement("td");
-
-      if (west[i]) {
-        const time = formatSeattleTime(west[i].departureTimeIso);
-        const name = west[i].vesselName || "";
-        wCell.textContent = name ? `${time} – ${name}` : time;
-      } else {
-        wCell.textContent = "";
-      }
-
-      if (east[i]) {
-        const time = formatSeattleTime(east[i].departureTimeIso);
-        const name = east[i].vesselName || "";
-        eCell.textContent = name ? `${time} – ${name}` : time;
-      } else {
-        eCell.textContent = "";
-      }
-
-      row.appendChild(wCell);
-      row.appendChild(eCell);
-      tbody.appendChild(row);
-    }
-
-    table.appendChild(tbody);
-    schedulePanelEl.appendChild(table);
+  if (!schedule || (!Array.isArray(schedule.west) && !Array.isArray(schedule.east))) {
+    schedulePanelEl.textContent = "No schedule data.";
+    return;
   }
+
+  const now = new Date();
+  const nowMs = now.getTime();
+
+  // ---- service-day (2:00 a.m.)
+  function getServiceDayKey(input) {
+    const dt = input instanceof Date ? new Date(input.getTime()) : new Date(input);
+    if (dt.getHours() < 2) dt.setDate(dt.getDate() - 1);
+    dt.setHours(0, 0, 0, 0);
+    return dt.getTime();
+  }
+
+  const serviceDayNow = getServiceDayKey(now);
+
+  const westAll = Array.isArray(schedule.west) ? schedule.west : [];
+  const eastAll = Array.isArray(schedule.east) ? schedule.east : [];
+
+  // Combine into unified sorted list
+  const combined = [];
+  westAll.forEach(s => {
+    if (s && s.departureTimeIso) {
+      combined.push({
+        ...s,
+        side: "west",
+        departureMs: Date.parse(s.departureTimeIso)
+      });
+    }
+  });
+  eastAll.forEach(s => {
+    if (s && s.departureTimeIso) {
+      combined.push({
+        ...s,
+        side: "east",
+        departureMs: Date.parse(s.departureTimeIso)
+      });
+    }
+  });
+
+  combined.sort((a, b) => a.departureMs - b.departureMs);
+
+  // Keep only >= now
+  const future = combined.filter(s => s.departureMs >= nowMs);
+
+  if (!future.length) {
+    schedulePanelEl.textContent = "No remaining sailings.";
+    return;
+  }
+
+  // Split by service-day
+  const todaySection = [];
+  const tomorrowSection = [];
+
+  for (const s of future) {
+    const sd = getServiceDayKey(s.departureMs);
+    if (sd === serviceDayNow) todaySection.push(s);
+    else tomorrowSection.push(s);
+  }
+
+  // 12-hour extension
+  const twelveHoursMs = nowMs + 12 * 60 * 60 * 1000;
+  const extendedTomorrow = tomorrowSection.filter(s => s.departureMs <= twelveHoursMs);
+
+  // Final linear list: today first, then tomorrow
+  const finalList = todaySection.concat(extendedTomorrow);
+
+  const nextAvailable = finalList.length ? finalList[0].departureMs : null;
+
+  // Header row only once
+  const headerDiv = document.createElement("div");
+  headerDiv.id = "schedule-header";
+  headerDiv.style.display = "flex";
+  headerDiv.style.flexDirection = "row";
+  headerDiv.style.justifyContent = "space-between";
+  headerDiv.style.alignItems = "center";
+  headerDiv.style.padding = "6px 0";
+
+  const titleSpan = document.createElement("div");
+  const headerText =
+    (routeInfoEl && routeInfoEl.textContent && routeInfoEl.textContent.trim()) ||
+    (schedule.route && schedule.route.description) ||
+    "Current route";
+  titleSpan.textContent = headerText;
+  headerDiv.appendChild(titleSpan);
+
+  const changeBtn = document.createElement("button");
+  changeBtn.type = "button";
+  changeBtn.id = "schedule-change-route-btn";
+  changeBtn.textContent = "Change route";
+  changeBtn.addEventListener("click", () => openRoutePicker());
+  headerDiv.appendChild(changeBtn);
+
+  schedulePanelEl.appendChild(headerDiv);
+
+  // Time formatter
+  function formatSeattleTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return fmt.format(d);
+  }
+
+  // Build single table
+  const table = document.createElement("table");
+  table.className = "schedule-table";
+
+  const thead = document.createElement("thead");
+  const trh = document.createElement("tr");
+
+  const thW = document.createElement("th");
+  thW.textContent = (schedule.route && schedule.route.terminalNameWest) || "West";
+  const thE = document.createElement("th");
+  thE.textContent = (schedule.route && schedule.route.terminalNameEast) || "East";
+
+  trh.appendChild(thW);
+  trh.appendChild(thE);
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+
+  // Separate west/east inside finalList
+  const westList = finalList.filter(x => x.side === "west");
+  const eastList = finalList.filter(x => x.side === "east");
+  const maxRows = Math.max(westList.length, eastList.length);
+
+  const firstTomorrowMs = tomorrowSection.length
+    ? tomorrowSection[0].departureMs
+    : Infinity;
+
+  for (let i = 0; i < maxRows; i++) {
+    const row = document.createElement("tr");
+
+    const wCell = document.createElement("td");
+    const eCell = document.createElement("td");
+
+    let rowTimeMs = null;
+
+    if (westList[i]) {
+      rowTimeMs = westList[i].departureMs;
+      const t = formatSeattleTime(westList[i].departureTimeIso);
+      const name = westList[i].vesselName || "";
+      wCell.textContent = name ? `${t} – ${name}` : t;
+    }
+
+    if (eastList[i]) {
+      rowTimeMs = eastList[i].departureMs;
+      const t = formatSeattleTime(eastList[i].departureTimeIso);
+      const name = eastList[i].vesselName || "";
+      eCell.textContent = name ? `${t} – ${name}` : t;
+    }
+
+    // Dim tomorrow rows (unless they are next available)
+    if (rowTimeMs !== nextAvailable && rowTimeMs >= firstTomorrowMs) {
+      row.style.opacity = "0.6";
+    }
+
+    row.appendChild(wCell);
+    row.appendChild(eCell);
+    tbody.appendChild(row);
+  }
+
+  table.appendChild(tbody);
+  schedulePanelEl.appendChild(table);
+}
 
     async function onScheduleToggleClick() {
     if (!scheduleToggleBtnEl || !schedulePanelEl) return;
@@ -405,15 +508,28 @@
       try {
         scheduleToggleBtnEl.disabled = true;
         scheduleToggleBtnEl.textContent = "Loading schedule...";
+
         const schedule = await fetchSchedule(currentRouteId);
         renderSchedule(schedule);
+
         schedulePanelEl.style.display = "block";
         scheduleToggleBtnEl.textContent = "Hide ferry schedule";
+        scheduleToggleBtnEl.classList.add("schedule-open");
+
+        const changeBtn = document.getElementById("schedule-change-route-btn");
+        if (changeBtn) changeBtn.classList.add("schedule-open");
       } catch (err) {
         console.error("[ferryClock] schedule load error:", err);
+
         schedulePanelEl.textContent = "Error loading schedule.";
         schedulePanelEl.style.display = "block";
+
+        // Still show as "open" when error is visible
         scheduleToggleBtnEl.textContent = "Hide ferry schedule";
+        scheduleToggleBtnEl.classList.add("schedule-open");
+
+        const changeBtn = document.getElementById("schedule-change-route-btn");
+        if (changeBtn) changeBtn.classList.add("schedule-open");
       } finally {
         scheduleToggleBtnEl.disabled = false;
       }
@@ -421,6 +537,10 @@
       // Hide schedule
       schedulePanelEl.style.display = "none";
       scheduleToggleBtnEl.textContent = "Show ferry schedule";
+      scheduleToggleBtnEl.classList.remove("schedule-open");
+
+      const changeBtn = document.getElementById("schedule-change-route-btn");
+      if (changeBtn) changeBtn.classList.remove("schedule-open");
     }
   }
 
