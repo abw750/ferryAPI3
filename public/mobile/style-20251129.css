@@ -1,6 +1,6 @@
 /* public/mobile/style.css */
 
-body::after {
+/* body::after {
   content: "MOBILE-CSS-LOADED";
   position: fixed;
   bottom: 4px;
@@ -8,7 +8,7 @@ body::after {
   font-size: 10px;
   color: red;
   z-index: 9999;
-}
+} */
 
 html, body {
   overscroll-behavior-y: contain;
@@ -416,7 +416,12 @@ body.theme-light #route-theme-toggle-btn:hover {
   max-width: 400px;
   padding: 8px;
   box-sizing: border-box;
-}
+
+  /* NEW: make the schedule scrollable on mobile */
+  max-height: 60vh;              /* enough room for a long list */
+  overflow-y: auto;              /* vertical scrolling inside the panel */
+  -webkit-overflow-scrolling: touch; /* smooth scrolling on mobile */
+  touch-action: pan-y;           /* allow vertical pan here, even though body is pan-x */}
 
 /* Schedule table: two columns, west (left) and east (right) */
 
