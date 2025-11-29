@@ -175,6 +175,12 @@ function initRouteControls(routes, layers) {
   routeChangeBtnEl = document.getElementById("route-change-btn");
   routeInfoEl = document.getElementById("route-info");
 
+  // Hide the header "Change route" pill everywhere; we only use the
+  // schedule-view "Change route" button now.
+  if (routeChangeBtnEl) {
+    routeChangeBtnEl.style.display = "none";
+  }
+
   if (!routeSelectEl) {
     console.warn("[ferryClock] route select not found in DOM");
     return;
@@ -486,7 +492,12 @@ headerDiv.style.borderRadius = "6px";
   changeBtn.textContent = "Change route";
 
   // Add horizontal space between route title and button
-  changeBtn.style.marginLeft = "50px"; // or "12px" if you want a bigger gap
+  changeBtn.style.marginLeft = "50px"; 
+
+  // Ensure pill shape even if CSS is stale (fallback for mobile/PWA)
+  changeBtn.style.borderRadius = "999px";
+  changeBtn.style.padding = "6px 12px";
+  changeBtn.style.border = "1px solid #4b5563";
 
   changeBtn.addEventListener("click", () => openRoutePicker());
   headerDiv.appendChild(changeBtn);
