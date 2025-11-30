@@ -15,8 +15,8 @@ html, body {
   height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
-  touch-action: pan-x; /* allow horizontal gestures only */
+  overflow: visible;
+  touch-action: auto; /* allow horizontal gestures only */
 }
 
 body.route-picker-open #route-change-btn {
