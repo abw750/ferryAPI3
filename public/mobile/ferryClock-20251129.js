@@ -1512,11 +1512,34 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
     }
 
     // Done button closes the picker and returns to clock view.
-    if (doneBtn) {
-      doneBtn.addEventListener("click", function () {
-        closeRoutePicker();
-      });
+doneBtn.addEventListener("click", function () {
+  // 1. Close the route picker
+  closeRoutePicker();
+
+  // 2. Also close the schedule if it is open
+  if (schedulePanelEl && scheduleToggleBtnEl) {
+    const isOpen = scheduleToggleBtnEl.classList.contains("schedule-open");
+    if (isOpen) {
+      // Mimic user clicking "Hide ferry schedule"
+      schedulePanelEl.style.display = "none";
+      scheduleToggleBtnEl.textContent = "Show ferry schedule";
+      scheduleToggleBtnEl.classList.remove("schedule-open");
+
+      // Reset inline styles to defaults
+      scheduleToggleBtnEl.style.backgroundColor = "";
+      scheduleToggleBtnEl.style.color = "";
+      scheduleToggleBtnEl.style.borderRadius = "";
+
+      const changeBtn = document.getElementById("schedule-change-route-btn");
+      if (changeBtn) {
+        changeBtn.classList.remove("schedule-open");
+        changeBtn.style.backgroundColor = "";
+        changeBtn.style.color = "";
+        changeBtn.style.borderRadius = "";
+      }
     }
+  }
+});
 
     // --- Light/Dark theme toggle in the header. ---
     function applyTheme(isLight) {
