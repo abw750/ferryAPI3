@@ -10,15 +10,6 @@
   z-index: 9999;
 } */
 
-html, body {
-  overscroll-behavior-y: contain;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  overflow: visible;
-  touch-action: auto; /* allow horizontal gestures only */
-}
-
 body.route-picker-open #route-change-btn {
   display: none;
 }
@@ -423,6 +414,16 @@ body.theme-light #route-theme-toggle-btn:hover {
   -webkit-overflow-scrolling: touch; /* smooth scrolling on mobile */
   touch-action: pan-y;           /* allow vertical pan here, even though body is pan-x */}
 
+/* Light mode: make the schedule panel background white */
+body.theme-light #schedule-panel {
+  background: #ffffff;
+}
+
+/* Light mode: ensure the area behind the schedule uses the light background */
+body.theme-light #mobile-main {
+  background: #f9fafb;
+}
+
 /* Schedule table: two columns, west (left) and east (right) */
 
 .schedule-table {
@@ -476,4 +477,23 @@ body.theme-light #schedule-change-route-btn {
   background-color: #168a1a !important;
   color: white !important;
   border-color: #168a1a !important;
+}
+
+/* Light mode: schedule header should be white with dark text */
+body.theme-light #schedule-header {
+  background: #969191 !important;
+  color: #ffffff !important;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* Ensure the title text inside remains dark */
+body.theme-light #schedule-header div {
+  color: #111827 !important;
+}
+
+/* Ensure the Change route button adapts too */
+body.theme-light #schedule-change-route-btn {
+  background: #168a1a !important;
+  color: #ffffff !important;
+  border: 1px solid #168a1a !important;
 }

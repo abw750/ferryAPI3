@@ -157,19 +157,6 @@
     }
   }
 
-    function formatSeattleTime(iso) {
-    if (!iso) return "";
-    const d = new Date(iso);
-    if (!Number.isFinite(d.getTime())) return "";
-    const fmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Los_Angeles",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-    return fmt.format(d);
-  }
-
 function initRouteControls(routes, layers) {
   routeSelectEl = document.getElementById("route-select");
   routeChangeBtnEl = document.getElementById("route-change-btn");
