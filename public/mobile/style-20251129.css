@@ -1,15 +1,5 @@
 /* public/mobile/style.css */
 
-/* body::after {
-  content: "MOBILE-CSS-LOADED";
-  position: fixed;
-  bottom: 4px;
-  right: 4px;
-  font-size: 10px;
-  color: red;
-  z-index: 9999;
-} */
-
 body.route-picker-open #route-change-btn {
   display: none;
 }
@@ -68,7 +58,7 @@ h1 {
 }
 
 .lane-nonlive {
-  opacity: 0.5;
+  opacity: 0.8;
 }
 
 /* Lane header label */
