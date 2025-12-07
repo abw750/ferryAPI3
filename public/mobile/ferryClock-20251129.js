@@ -538,28 +538,54 @@ headerDiv.style.borderRadius = "6px";
     const wCell = document.createElement("td");
     const eCell = document.createElement("td");
 
+    // Track row-level earliest time (for "next available")
+    // and per-cell times (for shading).
     let rowTimeMs = null;
+    let wTimeMs = null;
+    let eTimeMs = null;
 
     if (westList[i]) {
-      rowTimeMs = westList[i].departureMs;
+      wTimeMs = westList[i].departureMs;
+      // earliest time in this row for "nextAvailable" check
+      rowTimeMs =
+        rowTimeMs == null ? wTimeMs : Math.min(rowTimeMs, wTimeMs);
+
       const t = formatSeattleTime(westList[i].departureTimeIso);
       const name = westList[i].vesselName || "";
       wCell.textContent = name ? `${t} – ${name}` : t;
     }
 
     if (eastList[i]) {
-      rowTimeMs = eastList[i].departureMs;
+      eTimeMs = eastList[i].departureMs;
+      // earliest time in this row for "nextAvailable" check
+      rowTimeMs =
+        rowTimeMs == null ? eTimeMs : Math.min(rowTimeMs, eTimeMs);
+
       const t = formatSeattleTime(eastList[i].departureTimeIso);
       const name = eastList[i].vesselName || "";
       eCell.textContent = name ? `${t} – ${name}` : t;
     }
 
-    // Dim tomorrow rows (unless they are next available)
-    const rowServiceDay = getServiceDayKey(rowTimeMs);
-    const isTomorrowRow = rowServiceDay !== serviceDayNow;
+    // Dim each cell based on its OWN service-day, unless it
+    // corresponds to the overall next-available sailing.
+    if (wTimeMs != null) {
+      const wServiceDay = getServiceDayKey(wTimeMs);
+      const isTomorrowWest =
+        wServiceDay != null && wServiceDay !== serviceDayNow;
 
-    if (isTomorrowRow && rowTimeMs !== nextAvailable) {
-      row.style.opacity = "0.6";
+      if (isTomorrowWest && rowTimeMs !== nextAvailable) {
+        wCell.style.opacity = "0.6";
+      }
+    }
+
+    if (eTimeMs != null) {
+      const eServiceDay = getServiceDayKey(eTimeMs);
+      const isTomorrowEast =
+        eServiceDay != null && eServiceDay !== serviceDayNow;
+
+      if (isTomorrowEast && rowTimeMs !== nextAvailable) {
+        eCell.style.opacity = "0.6";
+      }
     }
 
     row.appendChild(wCell);
