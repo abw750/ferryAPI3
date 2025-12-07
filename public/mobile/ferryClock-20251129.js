@@ -555,7 +555,10 @@ headerDiv.style.borderRadius = "6px";
     }
 
     // Dim tomorrow rows (unless they are next available)
-    if (rowTimeMs !== nextAvailable && rowTimeMs >= firstTomorrowMs) {
+    const rowServiceDay = getServiceDayKey(rowTimeMs);
+    const isTomorrowRow = rowServiceDay !== serviceDayNow;
+
+    if (isTomorrowRow && rowTimeMs !== nextAvailable) {
       row.style.opacity = "0.6";
     }
 
