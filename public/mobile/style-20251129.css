@@ -397,12 +397,12 @@ body.theme-light #route-theme-toggle-btn:hover {
   max-width: 400px;
   padding: 8px;
   box-sizing: border-box;
-
-  /* NEW: make the schedule scrollable on mobile */
   max-height: 60vh;              /* enough room for a long list */
   overflow-y: auto;              /* vertical scrolling inside the panel */
   -webkit-overflow-scrolling: touch; /* smooth scrolling on mobile */
-  touch-action: pan-y;           /* allow vertical pan here, even though body is pan-x */}
+  touch-action: pan-y;           /* allow vertical pan here, even though body is pan-x */
+  overscroll-behavior: contain;
+}
 
 /* Light mode: make the schedule panel background white */
 body.theme-light #schedule-panel {
