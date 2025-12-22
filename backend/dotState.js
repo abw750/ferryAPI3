@@ -334,7 +334,7 @@ function updateDockMetaForLane(routeId, laneKey, lane, now) {
         const schedMs = Date.parse(schedIso);
         if (isFinite(schedMs)) {
           let dockStartMs = schedMs - 25 * 60 * 1000;
-          if (dockStartMs > nowMs) {
+          if (dockStartMs < nowMs) {
             dockStartMs = nowMs;
           }
           dockStartTime = new Date(dockStartMs).toISOString();
@@ -605,6 +605,56 @@ function snapStaleLaneToDockIfArrived(lane, now) {
     phase: "AT_DOCK",
     dotPosition: 1,
   };
+}
+
+// When live terminals are missing for an at-dock vessel, use the scheduled lane's
+// departure terminal to decide which side the boat is tied up on.
+function deriveDirectionWithSchedule(raw, scheduledLane, terminalIdWest, terminalIdEast, defaultDirection) {
+  // First, let the existing logic try to use live Departing/Arriving IDs.
+  const base = deriveDirectionAndTerminals(raw, terminalIdWest, terminalIdEast, defaultDirection);
+
+  // If we had clear live terminal IDs, do not override with schedule.
+  const hasLiveTerminals =
+    raw && raw.departingId != null && raw.arrivingId != null;
+  if (hasLiveTerminals) {
+    return base;
+  }
+
+  // We only care about the special case: at dock, no live terminals, but we
+  // know which terminal the *next scheduled departure* uses for this vessel.
+  if (!raw || !raw.atDock || !scheduledLane || scheduledLane.vesselId == null) {
+    return base;
+  }
+
+  if (Number(scheduledLane.vesselId) !== Number(raw.vesselId)) {
+    return base;
+  }
+
+  const schedDep = scheduledLane.departureTerminalId != null
+    ? Number(scheduledLane.departureTerminalId)
+    : null;
+
+  if (schedDep == null) {
+    return base;
+  }
+
+  if (schedDep === Number(terminalIdWest)) {
+    return {
+      direction: "WEST_TO_EAST",
+      departureTerminalId: terminalIdWest,
+      arrivalTerminalId: terminalIdEast,
+    };
+  }
+
+  if (schedDep === Number(terminalIdEast)) {
+    return {
+      direction: "EAST_TO_WEST",
+      departureTerminalId: terminalIdEast,
+      arrivalTerminalId: terminalIdWest,
+    };
+  }
+
+  return base;
 }
 
 function deriveDirectionAndTerminals(raw, terminalIdWest, terminalIdEast, defaultDirection) {
@@ -1206,10 +1256,12 @@ if (laneStrategy === "liveTerminals") {
   let upperSource = "missing"; // "live" | "stale" | "missing"
   let lowerSource = "missing";
 
-  // UPPER lane: slot 1 vessel, direction from live terminals when available.
+  // UPPER lane: slot 1 vessel, direction from live terminals when available,
+  // otherwise use schedule to choose dock side when at dock.
   if (upperRaw) {
-    const upperDirMeta = deriveDirectionAndTerminals(
+    const upperDirMeta = deriveDirectionWithSchedule(
       upperRaw,
+      scheduledUpper,
       terminalIdWest,
       terminalIdEast,
       "WEST_TO_EAST" // default expectation for upper lane
@@ -1242,14 +1294,16 @@ if (laneStrategy === "liveTerminals") {
       }
     }
 
-  // LOWER lane: slot 2 vessel, direction from live terminals when available.
-  if (lowerRaw) {
-    const lowerDirMeta = deriveDirectionAndTerminals(
-      lowerRaw,
-      terminalIdWest,
-      terminalIdEast,
-      "EAST_TO_WEST" // default expectation for lower lane
-    );
+      // LOWER lane: slot 2 vessel, direction from live terminals when available,
+      // otherwise use schedule to choose dock side when at dock.
+      if (lowerRaw) {
+        const lowerDirMeta = deriveDirectionWithSchedule(
+          lowerRaw,
+          scheduledLower,
+          terminalIdWest,
+          terminalIdEast,
+          "EAST_TO_WEST" // default expectation for lower lane
+        );
 
     lowerLane = buildLaneFromVessel(lowerRaw, {
       laneId: "LOWER",
