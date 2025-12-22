@@ -436,12 +436,8 @@ function renderSchedule(schedule) {
     else tomorrowSection.push(s);
   }
 
-  // 12-hour extension
-  const twelveHoursMs = nowMs + 12 * 60 * 60 * 1000;
-  const extendedTomorrow = tomorrowSection.filter(s => s.departureMs <= twelveHoursMs);
-
-  // Final linear list: today first, then tomorrow
-  const finalList = todaySection.concat(extendedTomorrow);
+  // Final linear list: strictly render what the backend gives us
+  const finalList = future;
   const nextAvailable = finalList.length ? finalList[0].departureMs : null;
 
   // Header row only once

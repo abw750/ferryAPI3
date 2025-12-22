@@ -155,6 +155,8 @@ async function buildScheduleForRoute(routeId) {
   }
 
   const now = new Date();
+  const windowEndMs = now.getTime() + 24 * 60 * 60 * 1000;
+  const nowMs = now.getTime();
 
   // Fetch TODAY + TOMORROW schedules (Pacific calendar days, unfiltered).
   const todayYmd = formatPacificYmd(now);
@@ -292,17 +294,24 @@ async function buildScheduleForRoute(routeId) {
     ...collectDepartures(terminalIdEast, terminalIdWest, combosTomorrow),
   ];
 
-  westAll.sort(
-    (a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso)
-  );
-  eastAll.sort(
-    (a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso)
-  );
+const west = westAll
+  .sort((a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso))
+  .filter(a => {
+    const t = Date.parse(a.departureTimeIso);
+    return t >= nowMs && t <= windowEndMs;
+  });
+
+const east = eastAll
+  .sort((a, b) => Date.parse(a.departureTimeIso) - Date.parse(b.departureTimeIso))
+  .filter(a => {
+    const t = Date.parse(a.departureTimeIso);
+    return t >= nowMs && t <= windowEndMs;
+  });
 
   return {
     ...base,
-    west: westAll,
-    east: eastAll,
+    west,
+    east,
   };
 }
 
