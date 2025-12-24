@@ -640,21 +640,47 @@ headerDiv.style.borderRadius = "6px";
         renderSchedule(schedule);
 
         schedulePanelEl.style.display = "block";
-        
-        // Lock page scroll so inner schedule panel owns vertical scroll
-        document.body.style.overflow = "hidden";
-        document.documentElement.style.overflow = "hidden";
 
+        // Mobile-only: make schedule frame much taller to expose more rows
+        if (window.innerWidth <= 768) {
+          schedulePanelEl.style.maxHeight = "85vh";
+        }
+                
         if (!schedulePanelEl.__touchGuardInstalled) {
+          let startY = 0;
+          let startScrollTop = 0;
+
           schedulePanelEl.addEventListener(
-            "touchmove",
+            "touchstart",
             function (e) {
-              e.stopPropagation();
+              if (!e.touches || e.touches.length === 0) return;
+              startY = e.touches[0].clientY;
+              startScrollTop = schedulePanelEl.scrollTop;
             },
             { passive: true }
           );
+
+          schedulePanelEl.addEventListener(
+            "touchmove",
+            function (e) {
+              if (!e.touches || e.touches.length === 0) return;
+
+              const y = e.touches[0].clientY;
+              const dy = y - startY;
+
+              // Drive panel scroll, not page scroll
+              schedulePanelEl.scrollTop = startScrollTop - dy;
+
+              // Critical: stop the page from scrolling
+              e.preventDefault();
+              e.stopPropagation();
+            },
+            { passive: false }
+          );
+
           schedulePanelEl.__touchGuardInstalled = true;
         }
+
         scheduleToggleBtnEl.textContent = "Hide ferry schedule";
         scheduleToggleBtnEl.classList.add("schedule-open");
 
@@ -696,10 +722,6 @@ headerDiv.style.borderRadius = "6px";
     } else {
       // Hide schedule
       schedulePanelEl.style.display = "none";
-
-      // Restore page scroll
-      document.body.style.overflow = "";
-      document.documentElement.style.overflow = "";
       scheduleToggleBtnEl.textContent = "Show ferry schedule";
       scheduleToggleBtnEl.classList.remove("schedule-open");
 
