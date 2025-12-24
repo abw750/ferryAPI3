@@ -641,10 +641,18 @@ headerDiv.style.borderRadius = "6px";
 
         schedulePanelEl.style.display = "block";
 
-        // Mobile-only: make schedule frame much taller to expose more rows
-        if (window.innerWidth <= 768) {
-          schedulePanelEl.style.maxHeight = "85vh";
-        }
+    if (window.innerWidth <= 768) {
+      // Mobile-only: remove schedule from document flow so it can own scroll
+      schedulePanelEl.style.position = "fixed";
+      schedulePanelEl.style.left = "0";
+      schedulePanelEl.style.right = "0";
+      schedulePanelEl.style.top = "64px";   // below header
+      schedulePanelEl.style.bottom = "0";
+
+      schedulePanelEl.style.maxHeight = "none";
+      schedulePanelEl.style.overflowY = "auto";
+      schedulePanelEl.style.zIndex = "1000";
+    }
                 
         if (!schedulePanelEl.__touchGuardInstalled) {
           let startY = 0;
@@ -722,6 +730,17 @@ headerDiv.style.borderRadius = "6px";
     } else {
       // Hide schedule
       schedulePanelEl.style.display = "none";
+      if (window.innerWidth <= 768) {
+      schedulePanelEl.style.position = "";
+      schedulePanelEl.style.left = "";
+      schedulePanelEl.style.right = "";
+      schedulePanelEl.style.top = "";
+      schedulePanelEl.style.bottom = "";
+      schedulePanelEl.style.maxHeight = "";
+      schedulePanelEl.style.overflowY = "";
+      schedulePanelEl.style.zIndex = "";
+    }
+
       scheduleToggleBtnEl.textContent = "Show ferry schedule";
       scheduleToggleBtnEl.classList.remove("schedule-open");
 
