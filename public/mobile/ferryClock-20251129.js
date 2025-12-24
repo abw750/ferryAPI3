@@ -640,16 +640,20 @@ headerDiv.style.borderRadius = "6px";
         renderSchedule(schedule);
 
         schedulePanelEl.style.display = "block";
-        // if (!schedulePanelEl.__touchGuardInstalled) {
-        //   schedulePanelEl.addEventListener(
-        //     "touchmove",
-        //     function (e) {
-        //       e.stopPropagation();
-        //     },
-        //     { passive: true }
-        //   );
-        //   schedulePanelEl.__touchGuardInstalled = true;
-        // }
+        // TEMP TEST: fix flexbox scroll containment on mobile
+        schedulePanelEl.style.minHeight = "0";
+        schedulePanelEl.style.flex = "1 1 auto";
+
+        if (!schedulePanelEl.__touchGuardInstalled) {
+          schedulePanelEl.addEventListener(
+            "touchmove",
+            function (e) {
+              e.stopPropagation();
+            },
+            { passive: true }
+          );
+          schedulePanelEl.__touchGuardInstalled = true;
+        }
         scheduleToggleBtnEl.textContent = "Hide ferry schedule";
         scheduleToggleBtnEl.classList.add("schedule-open");
 
