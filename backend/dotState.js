@@ -96,25 +96,13 @@ function setLastGoodCapacity(routeId, side, data, nowMs) {
   };
 }
 
-// Core helper: pick capacity for a single terminal side ("west" or "east")
-// using hybrid strategy:
-//  1) Prefer schedule-matched vessel with real drive-up data.
-//  2) Else, prefer any departure with real drive-up data.
-//  3) If both fail, fall back to last-good capacity (if within TTL).
-//
-// Returns:
-//   {
-//     data: {
-//       terminalId,
-//       vesselId,
-//       vesselName,
-//       maxAuto,
-//       availAuto,
-//       lastUpdated,
-//       isStale
-//     } | null,
-//     usedFallback: boolean
-//   }
+function serviceDayKeyPacific(date) {
+  const d = new Date(date);
+  if (d.getHours() < 3) d.setDate(d.getDate() - 1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 function deriveCapacityForSide(options) {
   const {
     routeId,
@@ -381,6 +369,31 @@ function updateDockMetaForLane(routeId, laneKey, lane, now) {
     dockArcFraction,
     lastUpdatedVessels: lane.lastUpdatedVessels || nowIso,
   };
+}
+function computeEligibleVessels(schedule, now) {
+  const nowMs = now.getTime();
+  const sdNow = serviceDayKeyPacific(now);
+  const eligible = new Set();
+
+  if (!schedule) return eligible;
+
+  const all = [
+    ...(schedule.west || []),
+    ...(schedule.east || [])
+  ];
+
+  for (const s of all) {
+    if (!s || !s.departureTimeIso || !s.vesselName) continue;
+
+    const depMs = Date.parse(s.departureTimeIso);
+    if (!Number.isFinite(depMs)) continue;
+    if (depMs < nowMs) continue;
+    if (serviceDayKeyPacific(depMs) !== sdNow) continue;
+
+    eligible.add(s.vesselName);
+  }
+
+  return eligible;
 }
 
 // laneKey: "upper" | "lower"
@@ -792,101 +805,31 @@ function buildLaneFromVessel(raw, opts) {
 }
 
 // ---- Synthetic fallback (no live data / API failure) ----
-
 function buildSyntheticState(route, terminalIdWest, terminalIdEast, now) {
   const nowIso = now.toISOString();
-  const labelWest = deriveLabel(route.terminalNameWest);
-  const labelEast = deriveLabel(route.terminalNameEast);
-
-  const departTacoma = new Date(now.getTime() - 10 * 60 * 1000);
-  const arriveTacoma = new Date(
-    departTacoma.getTime() + route.crossingTimeMinutes * 60 * 1000
-  );
-  const departWen = new Date(now.getTime() - 5 * 60 * 1000);
-  const nextDepartWen = new Date(now.getTime() + 15 * 60 * 1000);
-
-  const departTacomaIso = departTacoma.toISOString();
-  const arriveTacomaIso = arriveTacoma.toISOString();
-  const departWenIso = departWen.toISOString();
-  const nextDepartWenIso = nextDepartWen.toISOString();
-
-  const upperDotPos = computeDotPosition(departTacomaIso, arriveTacomaIso, now);
 
   return {
     route: {
-      routeId: route.routeId,
-      description: route.description,
-      crossingTimeMinutes: route.crossingTimeMinutes,
-      terminalNameWest: route.terminalNameWest,
-      terminalNameEast: route.terminalNameEast,
-      terminalIdWest,
-      terminalIdEast,
-      labelWest,
-      labelEast,
-    },
-    lanes: {
-      upper: {
-        laneId: "UPPER",
-        vesselPositionNumber: 1,
-        vesselId: null,
-        vesselName: "Unknown",
-        atDock: false,
-        direction: "WEST_TO_EAST",
-        departureTerminalId: terminalIdWest,
-        arrivalTerminalId: terminalIdEast,
-        scheduledDeparture: departTacomaIso,
-        leftDock: departTacomaIso,
-        eta: arriveTacomaIso,
-        phase: "UNDERWAY",
-        dotPosition: upperDotPos,
-        currentArrivalTime: arriveTacomaIso,
-        dockStartTime: null,
-        dockStartIsSynthetic: false,
-        dockArcFraction: null,
-        lastUpdatedVessels: nowIso,
-        isStale: false,
-      },
-      lower: {
-        laneId: "LOWER",
-        vesselPositionNumber: 2,
-        vesselId: null,
-        vesselName: "Unknown",
-        atDock: true,
-        direction: "EAST_TO_WEST",
-        departureTerminalId: terminalIdEast,
-        arrivalTerminalId: terminalIdWest,
-        scheduledDeparture: nextDepartWenIso,
-        leftDock: null,
-        eta: null,
-        phase: "AT_DOCK",
-        dotPosition: 0,
-        currentArrivalTime: nextDepartWenIso,
-        dockStartTime: departWenIso,
-        dockStartIsSynthetic: false,
-        dockArcFraction: 0.2,
-        lastUpdatedVessels: nowIso,
-        isStale: false,
-      },
+      ...route,
+      labelWest: deriveLabel(route.terminalNameWest),
+      labelEast: deriveLabel(route.terminalNameEast),
     },
 
+    lanes: {
+      upper: null,
+      lower: null,
+    },
+
+    capacity: null,
 
     meta: {
-      lastUpdatedVessels: nowIso,
-      lastUpdatedCapacity: null,
-      vesselsStale: true,
-      capacityStale: true,
-      serverTime: nowIso,
-      fallback: {
-        mode: "synthetic",
-        lanes: {
-          upper: "synthetic",
-          lower: "synthetic",
-        },
-      },
-      reason: "synthetic_no_live_data",
+      synthetic: true,
+      reason: "no_live_or_scheduled_vessels",
+      lastUpdated: nowIso,
     },
   };
 }
+
 
 // ---- Main entry point ----
 async function deriveNextDeparturesForLeg(route, terminalIdWest, terminalIdEast, now) {
@@ -1140,115 +1083,115 @@ if (laneStrategy === "liveTerminals") {
   // null and let the frontend treat the route as having no active vessels,
   // instead of fabricating synthetic "Unknown" vessels.
   // (upperRaw and lowerRaw will remain null here when nothing is live.)
-} else {
+  } else {
 
-  const lanePlan = await deriveLaneVesselsForRoute(route, terminalIdWest, now);
-  scheduledUpper = lanePlan.upper;
-  scheduledLower = lanePlan.lower;
-  scheduleError = lanePlan.scheduleError;
+    const lanePlan = await deriveLaneVesselsForRoute(route, terminalIdWest, now);
+    scheduledUpper = lanePlan.upper;
+    scheduledLower = lanePlan.lower;
+    scheduleError = lanePlan.scheduleError;
 
-  // If schedule is unusable, *then* synthetic fallback is appropriate.
-  if (scheduleError || (!scheduledUpper && !scheduledLower)) {
-    return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
-  }
-
-  // ---- Capacity for west/east terminals (Cannon capacity pies, hybrid rule) ----
-  if (hasCapacity && terminalsPayload && Array.isArray(terminalsPayload)) {
-    // Choose the scheduled lane for each side based on departure terminal,
-    // not lane position (upper/lower).
-    let scheduledWestLane = null;
-    let scheduledEastLane = null;
-
-    if (scheduledUpper && scheduledUpper.departureTerminalId === terminalIdWest) {
-      scheduledWestLane = scheduledUpper;
-    } else if (scheduledLower && scheduledLower.departureTerminalId === terminalIdWest) {
-      scheduledWestLane = scheduledLower;
+    // If schedule is unusable, *then* synthetic fallback is appropriate.
+    if (scheduleError || (!scheduledUpper && !scheduledLower)) {
+      return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
     }
 
-    if (scheduledUpper && scheduledUpper.departureTerminalId === terminalIdEast) {
-      scheduledEastLane = scheduledUpper;
-    } else if (scheduledLower && scheduledLower.departureTerminalId === terminalIdEast) {
-      scheduledEastLane = scheduledLower;
+    // ---- Capacity for west/east terminals (Cannon capacity pies, hybrid rule) ----
+    if (hasCapacity && terminalsPayload && Array.isArray(terminalsPayload)) {
+      // Choose the scheduled lane for each side based on departure terminal,
+      // not lane position (upper/lower).
+      let scheduledWestLane = null;
+      let scheduledEastLane = null;
+
+      if (scheduledUpper && scheduledUpper.departureTerminalId === terminalIdWest) {
+        scheduledWestLane = scheduledUpper;
+      } else if (scheduledLower && scheduledLower.departureTerminalId === terminalIdWest) {
+        scheduledWestLane = scheduledLower;
+      }
+
+      if (scheduledUpper && scheduledUpper.departureTerminalId === terminalIdEast) {
+        scheduledEastLane = scheduledUpper;
+      } else if (scheduledLower && scheduledLower.departureTerminalId === terminalIdEast) {
+        scheduledEastLane = scheduledLower;
+      }
+
+      const westResult = deriveCapacityForSide({
+        routeId: route.routeId,
+        side: "west",
+        terminalIdSide: terminalIdWest,
+        terminalIdOther: terminalIdEast,
+        scheduledLane: scheduledWestLane,
+        terminalsPayload,
+        now,
+      });
+
+      const eastResult = deriveCapacityForSide({
+        routeId: route.routeId,
+        side: "east",
+        terminalIdSide: terminalIdEast,
+        terminalIdOther: terminalIdWest,
+        scheduledLane: scheduledEastLane,
+        terminalsPayload,
+        now,
+      });
+
+      const west = westResult.data;
+      const east = eastResult.data;
+
+      capacityUsedFallback = !!(westResult.usedFallback || eastResult.usedFallback);
+
+      if (west || east) {
+        capacity = {
+          westMaxAuto: west && typeof west.maxAuto === "number" ? west.maxAuto : null,
+          westAvailAuto: west && typeof west.availAuto === "number" ? west.availAuto : null,
+          westVesselId: west ? west.vesselId : null,
+          westVesselName: west ? west.vesselName : null,
+
+          eastMaxAuto: east && typeof east.maxAuto === "number" ? east.maxAuto : null,
+          eastAvailAuto: east && typeof east.availAuto === "number" ? east.availAuto : null,
+          eastVesselId: east ? east.vesselId : null,
+          eastVesselName: east ? east.vesselName : null,
+        };
+
+        const timestamps = [];
+        if (west && west.lastUpdated) timestamps.push(west.lastUpdated);
+        if (east && east.lastUpdated) timestamps.push(east.lastUpdated);
+
+        capacityLastUpdatedIso =
+          timestamps.length > 0 ? timestamps.sort().slice(-1)[0] : null;
+        capacityStale = !!(
+          (west && west.isStale) ||
+          (east && east.isStale) ||
+          capacityUsedFallback
+        );
+      } else {
+        capacity = null;
+        capacityLastUpdatedIso = null;
+        capacityStale = true;
+      }
     }
 
-    const westResult = deriveCapacityForSide({
-      routeId: route.routeId,
-      side: "west",
-      terminalIdSide: terminalIdWest,
-      terminalIdOther: terminalIdEast,
-      scheduledLane: scheduledWestLane,
-      terminalsPayload,
-      now,
-    });
+    // Load live vessels indexed by VesselID (may be empty)
+    const byId = new Map();
+    if (Array.isArray(liveVessels)) {
+      for (const v of liveVessels) {
+        if (v && v.vesselId != null) byId.set(v.vesselId, v);
+      }
+    }
 
-    const eastResult = deriveCapacityForSide({
-      routeId: route.routeId,
-      side: "east",
-      terminalIdSide: terminalIdEast,
-      terminalIdOther: terminalIdWest,
-      scheduledLane: scheduledEastLane,
-      terminalsPayload,
-      now,
-    });
+    // Determine live raw vessels for each lane by matching scheduled vesselIds
+    if (scheduledUpper && scheduledUpper.vesselId != null) {
+      upperRaw = byId.get(scheduledUpper.vesselId) || null;
+    }
 
-    const west = westResult.data;
-    const east = eastResult.data;
+    if (scheduledLower && scheduledLower.vesselId != null) {
+      lowerRaw = byId.get(scheduledLower.vesselId) || null;
+    }
 
-    capacityUsedFallback = !!(westResult.usedFallback || eastResult.usedFallback);
-
-    if (west || east) {
-      capacity = {
-        westMaxAuto: west && typeof west.maxAuto === "number" ? west.maxAuto : null,
-        westAvailAuto: west && typeof west.availAuto === "number" ? west.availAuto : null,
-        westVesselId: west ? west.vesselId : null,
-        westVesselName: west ? west.vesselName : null,
-
-        eastMaxAuto: east && typeof east.maxAuto === "number" ? east.maxAuto : null,
-        eastAvailAuto: east && typeof east.availAuto === "number" ? east.availAuto : null,
-        eastVesselId: east ? east.vesselId : null,
-        eastVesselName: east ? east.vesselName : null,
-      };
-
-      const timestamps = [];
-      if (west && west.lastUpdated) timestamps.push(west.lastUpdated);
-      if (east && east.lastUpdated) timestamps.push(east.lastUpdated);
-
-      capacityLastUpdatedIso =
-        timestamps.length > 0 ? timestamps.sort().slice(-1)[0] : null;
-      capacityStale = !!(
-        (west && west.isStale) ||
-        (east && east.isStale) ||
-        capacityUsedFallback
-      );
-    } else {
-      capacity = null;
-      capacityLastUpdatedIso = null;
-      capacityStale = true;
+    // If neither lane has a scheduled vessel → synthetic fallback
+    if (!upperRaw && !lowerRaw) {
+      return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
     }
   }
-
-  // Load live vessels indexed by VesselID (may be empty)
-  const byId = new Map();
-  if (Array.isArray(liveVessels)) {
-    for (const v of liveVessels) {
-      if (v && v.vesselId != null) byId.set(v.vesselId, v);
-    }
-  }
-
-  // Determine live raw vessels for each lane by matching scheduled vesselIds
-  if (scheduledUpper && scheduledUpper.vesselId != null) {
-    upperRaw = byId.get(scheduledUpper.vesselId) || null;
-  }
-
-  if (scheduledLower && scheduledLower.vesselId != null) {
-    lowerRaw = byId.get(scheduledLower.vesselId) || null;
-  }
-
-  // If neither lane has a scheduled vessel → synthetic fallback
-  if (!upperRaw && !lowerRaw) {
-    return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
-  }
-}
 
   // ---- Build lanes with last-good caching ----
   let upperLane;
@@ -1279,14 +1222,14 @@ if (laneStrategy === "liveTerminals") {
     upperSource = "live";
     setLastGoodLane(route.routeId, "upper", upperLane, nowMs);
     } else {
-      const cachedLower = getLastGoodLane(route.routeId, "lower", nowMs);
-      if (cachedLower) {
-        lowerLane = {
-          ...cachedLower,
+      const cachedUpper = getLastGoodLane(route.routeId, "upper", nowMs);
+      if (cachedUpper) {
+        upperLane = {
+          ...cachedUpper,
           lastUpdatedVessels: nowIso,
           isStale: true,
         };
-        lowerSource = "stale";
+        upperSource = "stale";
       } else {
         // No live or cached data: remove the lane instead of fabricating a bogus one.
         lowerLane = null;

@@ -86,6 +86,15 @@
 
     if (!topGroup && !bottomGroup) return;
 
+   // Clear previous render; lanes are authoritative per cycle
+    if (topGroup) {
+      while (topGroup.firstChild) topGroup.removeChild(topGroup.firstChild);
+    }
+    if (bottomGroup) {
+      while (bottomGroup.firstChild) bottomGroup.removeChild(bottomGroup.firstChild);
+    }
+
+
     function drawLaneRowModule(group, lane, yRow) {
       if (!group || !lane) return;
 

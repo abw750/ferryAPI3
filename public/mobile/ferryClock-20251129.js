@@ -1169,66 +1169,6 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
       renderCapacityOverlay(capacityGroup, state);
     }
 
-    // Dial-side WEST / EAST labels using same precedence as dotApp (Cannon: backend route drives labels)
-    const labelWestText =
-      (route.labelWest && String(route.labelWest).trim()) ||
-      (route.terminalNameWest && String(route.terminalNameWest).trim()) ||
-      "";
-    const labelEastText =
-      (route.labelEast && String(route.labelEast).trim()) ||
-      (route.terminalNameEast && String(route.terminalNameEast).trim()) ||
-      "";
-
-    if (labelWestText || labelEastText) {
-      // Horizontal positions aligned with lane bars (Cannon: west=left, east=right)
-      const barWidth = BAR_W;
-
-      // Base radius from center to bar end, plus extra outward offset
-      const offset = barWidth / 2 + 50; // 10px original + 50px outward
-
-      // Symmetric positions on 9–3 axis
-      const xWestLabel = CX - offset;
-      const xEastLabel = CX + offset;
-
-      // Vertically centered between upper and lower lanes (on 9–3 axis)
-      const yMid = CY;
-
-      // WEST label
-      if (labelWestText) {
-        const x = xWestLabel;
-        const y = yMid;
-        const t = elNS("text", {
-          x: String(x),
-          y: String(y),
-          "text-anchor": "middle",
-          "dominant-baseline": "middle",
-          // "font-weight": "bold",
-          "font-size": "12",
-          fill: "#2b2f9aff",
-          transform: `rotate(-90 ${x} ${y})`,
-        });
-        t.textContent = labelWestText;
-        layers.top.appendChild(t);
-      }
-
-      // EAST label
-      if (labelEastText) {
-        const x = xEastLabel;
-        const y = yMid;
-        const t = elNS("text", {
-          x: String(x),
-          y: String(y),
-          "text-anchor": "middle",
-          "dominant-baseline": "middle",
-          // "font-weight": "bold",
-          "font-size": "12",
-          fill: "#2b2f9aff",
-          transform: `rotate(90 ${x} ${y})`,
-        });
-        t.textContent = labelEastText;
-        layers.top.appendChild(t);
-      }
-    }
 
     // Map direction enum to "ltr"/"rtl" and scheme
     function laneDir(lane) {
@@ -1427,6 +1367,66 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
     }
 
     renderLaneOverlay(layers.top, layers.bottom, upperLane, lowerLane, now);
+        // Dial-side WEST / EAST labels using same precedence as dotApp (Cannon: backend route drives labels)
+    const labelWestText =
+      (route.labelWest && String(route.labelWest).trim()) ||
+      (route.terminalNameWest && String(route.terminalNameWest).trim()) ||
+      "";
+    const labelEastText =
+      (route.labelEast && String(route.labelEast).trim()) ||
+      (route.terminalNameEast && String(route.terminalNameEast).trim()) ||
+      "";
+
+    if (labelWestText || labelEastText) {
+      // Horizontal positions aligned with lane bars (Cannon: west=left, east=right)
+      const barWidth = BAR_W;
+
+      // Base radius from center to bar end, plus extra outward offset
+      const offset = barWidth / 2 + 50; // 10px original + 50px outward
+
+      // Symmetric positions on 9–3 axis
+      const xWestLabel = CX - offset;
+      const xEastLabel = CX + offset;
+
+      // Vertically centered between upper and lower lanes (on 9–3 axis)
+      const yMid = CY;
+
+      // WEST label
+      if (labelWestText) {
+        const x = xWestLabel;
+        const y = yMid;
+        const t = elNS("text", {
+          x: String(x),
+          y: String(y),
+          "text-anchor": "middle",
+          "dominant-baseline": "middle",
+          // "font-weight": "bold",
+          "font-size": "12",
+          fill: "#2b2f9aff",
+          transform: `rotate(-90 ${x} ${y})`,
+        });
+        t.textContent = labelWestText;
+        layers.top.appendChild(t);
+      }
+
+      // EAST label
+      if (labelEastText) {
+        const x = xEastLabel;
+        const y = yMid;
+        const t = elNS("text", {
+          x: String(x),
+          y: String(y),
+          "text-anchor": "middle",
+          "dominant-baseline": "middle",
+          // "font-weight": "bold",
+          "font-size": "12",
+          fill: "#2b2f9aff",
+          transform: `rotate(90 ${x} ${y})`,
+        });
+        t.textContent = labelEastText;
+        layers.top.appendChild(t);
+      }
+    }
   }
 
   // Draws a central debug label if we fail early.
