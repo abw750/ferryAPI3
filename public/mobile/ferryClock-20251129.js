@@ -728,36 +728,47 @@ headerDiv.style.borderRadius = "6px";
         scheduleToggleBtnEl.disabled = false;
       }
     } else {
-      // Hide schedule
-      schedulePanelEl.style.display = "none";
-      if (window.innerWidth <= 768) {
-      schedulePanelEl.style.position = "";
-      schedulePanelEl.style.left = "";
-      schedulePanelEl.style.right = "";
-      schedulePanelEl.style.top = "";
-      schedulePanelEl.style.bottom = "";
-      schedulePanelEl.style.maxHeight = "";
-      schedulePanelEl.style.overflowY = "";
-      schedulePanelEl.style.zIndex = "";
-    }
+    // Hide schedule
+    schedulePanelEl.style.display = "none";
 
-      scheduleToggleBtnEl.textContent = "Show ferry schedule";
-      scheduleToggleBtnEl.classList.remove("schedule-open");
+        if (window.innerWidth <= 768) {
+          // Restore layout styles
+          schedulePanelEl.style.position = "";
+          schedulePanelEl.style.left = "";
+          schedulePanelEl.style.right = "";
+          schedulePanelEl.style.top = "";
+          schedulePanelEl.style.bottom = "";
+          schedulePanelEl.style.maxHeight = "";
+          schedulePanelEl.style.overflowY = "";
+          schedulePanelEl.style.zIndex = "";
 
-      // Clear inline styles back to CSS defaults
-      scheduleToggleBtnEl.style.backgroundColor = "";
-      scheduleToggleBtnEl.style.color = "";
-      scheduleToggleBtnEl.style.borderRadius = "";
+          // Restore pointer events
+          schedulePanelEl.style.pointerEvents = "auto";
 
-      const changeBtn = document.getElementById("schedule-change-route-btn");
-      if (changeBtn) {
-        changeBtn.classList.remove("schedule-open");
-        changeBtn.style.backgroundColor = "";
-        changeBtn.style.color = "";
-        changeBtn.style.borderRadius = "";
+          const clock = document.getElementById("clockFace");
+          if (clock) {
+            clock.style.pointerEvents = "none";
+          }
+        }
+
+        scheduleToggleBtnEl.textContent = "Show ferry schedule";
+        scheduleToggleBtnEl.classList.remove("schedule-open");
+
+        // Clear inline styles back to CSS defaults
+        scheduleToggleBtnEl.style.backgroundColor = "";
+        scheduleToggleBtnEl.style.color = "";
+        scheduleToggleBtnEl.style.borderRadius = "";
+
+
+        const changeBtn = document.getElementById("schedule-change-route-btn");
+        if (changeBtn) {
+          changeBtn.classList.remove("schedule-open");
+          changeBtn.style.backgroundColor = "";
+          changeBtn.style.color = "";
+          changeBtn.style.borderRadius = "";
+        }
       }
     }
-  }
 
   async function refreshDotState(layers) {
     // Always prefer the current value in the route selector, if present.
