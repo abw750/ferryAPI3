@@ -39,6 +39,136 @@
     dotRtl:    COLOR_DOT_RTL,
   };
 
+// ================================
+// Geometry + SVG helpers (init once)
+// ================================
+function initFerryGeometry() {
+  
+    function elNS(tag, attrs) {
+      const n = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        tag
+      );
+      if (attrs) for (const k in attrs) n.setAttribute(k, attrs[k]);
+      return n;
+    }
+
+
+  function line(x1, y1, x2, y2, stroke, w) {
+    const n = elNS("line", { x1, y1, x2, y2 });
+    n.setAttribute(
+      "style",
+      `stroke:${stroke};stroke-width:${w};stroke-linecap:${STROKE_CAP}`
+    );
+    return n;
+  }
+
+  function arrowHead(x, y, angleRad, stroke, w, size) {
+    const s = size || 8;
+    const p1x = x + Math.cos(angleRad + Math.PI - 0.9) * s;
+    const p1y = y + Math.sin(angleRad + Math.PI - 0.9) * s;
+    const p2x = x + Math.cos(angleRad + Math.PI + 0.9) * s;
+    const p2y = y + Math.sin(angleRad + Math.PI + 0.9) * s;
+    return elNS("path", {
+      d: `M ${x} ${y} L ${p1x} ${p1y} M ${x} ${y} L ${p2x} ${p2y}`,
+      stroke,
+      "stroke-width": w,
+      fill: "none",
+      "stroke-linecap": STROKE_CAP,
+    });
+  }
+
+  function circleDot(x, y, r, fill) {
+    return elNS("circle", {
+      cx: x,
+      cy: y,
+      r,
+      fill,
+      opacity: "1",
+    });
+  }
+
+  function barRect(x1, x2, y, thickness, fill) {
+    const xStart = Math.min(x1, x2);
+    const width = Math.abs(x2 - x1);
+    const yTop = y - thickness / 2;
+    const radius = thickness / 2;
+    return elNS("rect", {
+      x: xStart,
+      y: yTop,
+      width,
+      height: thickness,
+      fill,
+      rx: radius,
+      ry: radius,
+    });
+  }
+
+  function addText(group, text, x, y, opts = {}) {
+    const t = elNS("text", {
+      x: String(x),
+      y: String(y),
+      "text-anchor": opts.anchor || "middle",
+      fill: opts.fill || "#111827",
+      "font-size": opts.fontSize || "12",
+    });
+    t.textContent = text;
+    group.appendChild(t);
+  }
+
+  function polarToCartesian(cx, cy, r, angleRad) {
+    return {
+      x: cx + r * Math.cos(angleRad),
+      y: cy + r * Math.sin(angleRad),
+    };
+  }
+
+  function describeArcPath(cx, cy, r, startAngle, endAngle) {
+    const start = polarToCartesian(cx, cy, r, startAngle);
+    const end = polarToCartesian(cx, cy, r, endAngle);
+
+    let delta = endAngle - startAngle;
+    while (delta < 0) delta += Math.PI * 2;
+    while (delta > Math.PI * 2) delta -= Math.PI * 2;
+
+    const largeArcFlag = delta > Math.PI ? 1 : 0;
+    const sweepFlag = 1;
+
+    return [
+      "M", start.x, start.y,
+      "A", r, r, 0, largeArcFlag, sweepFlag, end.x, end.y,
+    ].join(" ");
+  }
+
+  // Expose once
+  window.FerrySvg = {
+    elNS,
+    line,
+    arrowHead,
+    circleDot,
+    barRect,
+    addText,
+  };
+
+  window.FerryGeometry = {
+    CX,
+    CY,
+    BAR_W,
+    BAR_THICKNESS,
+    BAR_Y_OFFSET,
+    LABEL_GAP,
+    dockRadii: {
+      upper: R_DOCK_UPPER,
+      lower: R_DOCK_LOWER,
+    },
+    dockArcThickness: DOCK_ARC_THICKNESS,
+    polarToCartesian,
+    describeArcPath,
+  };
+
+  window.FerryDescribeArcPath = describeArcPath;
+}
+
     // --- persistent route selection (localStorage) ---
   const ROUTE_STORAGE_KEY = "ferryClock.selectedRouteId";
 
@@ -107,7 +237,7 @@
 
     layersRef = layers;
 
-    layersRef = layers;
+    initFerryGeometry();
 
     // Keyboard: "r" to mimic swipe-down (open route picker) on desktop
     document.addEventListener("keydown", (ev) => {
@@ -156,6 +286,31 @@
       console.error("[ferryClock] dispatchRouteSelected error:", err);
     }
   }
+
+function setCurrentRoute(routeId, options = {}) {
+  if (!Number.isFinite(routeId) || routeId === currentRouteId) {
+    return;
+  }
+
+  currentRouteId = routeId;
+  storeSelectedRouteId(routeId);
+
+  dispatchRouteSelected(routeId);
+
+  if (routeSelectEl) {
+    routeSelectEl.value = String(routeId);
+  }
+
+  if (routeInfoEl && options.routeObj?.description) {
+    routeInfoEl.textContent = options.routeObj.description;
+  }
+
+  if (layersRef) {
+    refreshDotState(layersRef);
+  }
+
+  reloadScheduleIfOpen();
+}
 
 function initRouteControls(routes, layers) {
   routeSelectEl = document.getElementById("route-select");
@@ -208,28 +363,8 @@ function initRouteControls(routes, layers) {
           return;
         }
 
-        currentRouteId = idNum;
-        storeSelectedRouteId(currentRouteId);
+        setCurrentRoute(idNum, { routeObj: route });
 
-        if (routeSelectEl) {
-          routeSelectEl.value = String(currentRouteId);
-        }
-
-        dispatchRouteSelected(currentRouteId);
-
-        if (routeInfoEl) {
-          routeInfoEl.textContent = route.description || "";
-        }
-
-        if (layersRef) {
-          refreshDotState(layersRef);
-        }
-
-        // Update button colors (selected vs unselected)
-        applyRouteMenuSelection();
-
-        // If the schedule is open, reload it for the newly selected route
-        reloadScheduleIfOpen();
 
         // Do NOT close the picker here. User will hit "Done" when satisfied.
       });
@@ -282,25 +417,16 @@ function initRouteControls(routes, layers) {
   }
 
   // Establish initial routeId, preferring persisted selection.
-  if (routes.length > 0) {
-    if (currentRouteId == null) {
-      const stored = loadStoredRouteId(routes);
-      if (stored != null) {
-        currentRouteId = stored;
-      } else {
-        currentRouteId = routes[0].routeId;
-      }
-    }
-    routeSelectEl.value = String(currentRouteId);
-    dispatchRouteSelected(currentRouteId);
+  if (routes.length > 0 && currentRouteId == null) {
+    const stored = loadStoredRouteId(routes);
+    const initialRouteId =
+      stored != null ? stored : routes[0].routeId;
 
-    if (routeInfoEl) {
-      const currentRoute = routes.find((r) => r.routeId === currentRouteId);
-      routeInfoEl.textContent = currentRoute
-        ? (currentRoute.description || "")
-        : "";
-    }
-  }
+    const routeObj =
+      routes.find((r) => r.routeId === initialRouteId) || null;
+
+    setCurrentRoute(initialRouteId, { routeObj });
+}
 
   // Apply initial button styling now that currentRouteId is known.
   if (menu) {
@@ -320,27 +446,17 @@ function initRouteControls(routes, layers) {
     const value = routeSelectEl.value;
     const newRouteId = value ? Number(value) : null;
 
-    if (!newRouteId || newRouteId === currentRouteId) {
+    if (!Number.isFinite(newRouteId)) {
       return;
     }
 
-    currentRouteId = newRouteId;
-    storeSelectedRouteId(currentRouteId);
-    dispatchRouteSelected(currentRouteId);
-
-    if (routeInfoEl) {
-      const currentRoute = routes.find((r) => r.routeId === currentRouteId);
-      const desc = currentRoute ? (currentRoute.description || "") : "";
-      routeInfoEl.textContent = desc + " (pending refresh.)";
-    }
-
-    if (layersRef) {
-      refreshDotState(layersRef);
-    }
+    const routeObj = routes.find((r) => r.routeId === newRouteId) || null;
+    setCurrentRoute(newRouteId, { routeObj });
 
     // Keep route buttons in sync when selection changes via <select>
     applyRouteMenuSelection();
   });
+
 }
 
 
@@ -698,7 +814,6 @@ async function onScheduleToggleClick() {
     if (routeSelectEl && routeSelectEl.value) {
       const maybeId = Number(routeSelectEl.value);
       if (!Number.isNaN(maybeId) && maybeId > 0) {
-        currentRouteId = maybeId;
       }
     }
 
@@ -726,6 +841,9 @@ async function onScheduleToggleClick() {
 
   // ---------- overlay rendering ----------
   function renderAnalogOverlay(state, layers) {
+    const { elNS, line, arrowHead, circleDot, barRect, addText } = window.FerrySvg;
+    const { describeArcPath } = window.FerryGeometry;
+
     layers.clear();
 
     // Clear pending refresh message if present.
@@ -734,74 +852,9 @@ async function onScheduleToggleClick() {
       routeInfoEl.textContent = base;
     }
 
-    const ns = "http://www.w3.org/2000/svg";
     const now = new Date();
     const dockArcsGroup = ensureDockArcGroup(layers);
     const capacityGroup = ensureCapacityGroup(layers);
-
-    // Helper: create SVG element
-    function elNS(tag, attrs) {
-      const n = document.createElementNS(ns, tag);
-      if (attrs) for (const k in attrs) n.setAttribute(k, attrs[k]);
-      return n;
-    }
-
-    function line(x1, y1, x2, y2, stroke, w) {
-      // Use inline style so Cannon direction color wins over external CSS
-      const n = elNS("line", {
-        x1,
-        y1,
-        x2,
-        y2
-      });
-      n.setAttribute(
-        "style",
-        `stroke:${stroke};stroke-width:${w};stroke-linecap:${STROKE_CAP}`
-      );
-      return n;
-    }
-
-    function arrowHead(x, y, angleRad, stroke, w, size) {
-      const s = size || 8;
-      const p1x = x + Math.cos(angleRad + Math.PI - 0.9) * s;
-      const p1y = y + Math.sin(angleRad + Math.PI - 0.9) * s;
-      const p2x = x + Math.cos(angleRad + Math.PI + 0.9) * s;
-      const p2y = y + Math.sin(angleRad + Math.PI + 0.9) * s;
-      return elNS("path", {
-        d: `M ${x} ${y} L ${p1x} ${p1y} M ${x} ${y} L ${p2x} ${p2y}`,
-        stroke,
-        "stroke-width": w,
-        fill: "none",
-        "stroke-linecap": STROKE_CAP
-      });
-    }
-
-function circleDot(x, y, r, fill) {
-  return elNS("circle", {
-    cx: x,
-    cy: y,
-    r: r,
-    fill,
-    opacity: "1"   // FORCE fully opaque dot
-  });
-}
-
-    // Draws a solid bar between x1 and x2 centered at (y) with given thickness.
-    function barRect(x1, x2, y, thickness, fill) {
-      const xStart = Math.min(x1, x2);
-      const width = Math.abs(x2 - x1);
-      const yTop = y - thickness / 2;
-      const radius = thickness / 2;
-      return elNS("rect", {
-        x: xStart,
-        y: yTop,
-        width,
-        height: thickness,
-        fill,
-        rx: radius,
-        ry: radius
-      });
-    }
 
     function addShipIcon(g, cx, barY) {
       const x = cx - SHIP_W / 2;
@@ -820,19 +873,6 @@ function circleDot(x, y, r, fill) {
         preserveAspectRatio: "xMidYMid meet"
       });
       g.appendChild(img);
-    }
-
-    // Helper: text label
-    function addText(group, text, x, y, opts = {}) {
-      const t = elNS("text", {
-        x: String(x),
-        y: String(y),
-        "text-anchor": opts.anchor || "middle",
-        fill: opts.fill || "#111827",
-        "font-size": opts.fontSize || "12"
-      });
-      t.textContent = text;
-      group.appendChild(t);
     }
 
     // Helper: normalize time labels for the clock
@@ -858,58 +898,6 @@ function circleDot(x, y, r, fill) {
       // Fallback: show whatever we got
       return trimmed;
     }
-
-    // ---- Dock arc helpers (Cannon: arcs in outer/inner rings) ----
-
-    function polarToCartesian(cx, cy, r, angleRad) {
-      return {
-        x: cx + r * Math.cos(angleRad),
-        y: cy + r * Math.sin(angleRad),
-      };
-    }
-
-    // Returns an SVG arc path from startAngle to endAngle (radians, 0 at 3 oclock, CCW)
-    function describeArcPath(cx, cy, r, startAngle, endAngle) {
-      const start = polarToCartesian(cx, cy, r, startAngle);
-      const end   = polarToCartesian(cx, cy, r, endAngle);
-
-      // Normalize delta to [0, 2π]
-      let delta = endAngle - startAngle;
-      while (delta < 0) delta += Math.PI * 2;
-      while (delta > Math.PI * 2) delta -= Math.PI * 2;
-
-      const largeArcFlag = delta > Math.PI ? 1 : 0;
-      const sweepFlag = 1; // clockwise around dial
-
-      return [
-        "M", start.x, start.y,
-        "A", r, r, 0, largeArcFlag, sweepFlag, end.x, end.y,
-      ].join(" ");
-    }
-
-    // Expose for external overlay modules (capacity pies) while keeping
-    // the implementation owned here.
-    window.FerryDescribeArcPath = describeArcPath;
-
-    // Shared geometry descriptor for all overlay modules (lanes, arcs, pies).
-    window.FerryGeometry = {
-      CX,
-      CY,
-      laneRows: {
-        upper: 95,
-        lower: 305,
-      },
-      barWidth: BAR_W,
-      barYOffset: BAR_Y_OFFSET,
-      barThickness: BAR_THICKNESS,
-      dockRadii: {
-        upper: R_DOCK_UPPER,
-        lower: R_DOCK_LOWER,
-      },
-      dockArcThickness: DOCK_ARC_THICKNESS,
-      polarToCartesian,
-      describeArcPath,
-    };
 
     // Ensure a stable group for dock arcs; keep them behind top/bottom rows.
     function ensureDockArcGroup(layers) {
@@ -998,7 +986,7 @@ function circleDot(x, y, r, fill) {
       }
     }
 
-        // ---- Capacity donuts (Cannon: auto spaces per terminal) ----
+    // ---- Capacity donuts (Cannon: auto spaces per terminal) ----
 
     function ensureCapacityGroup(layers) {
       const gOverlay = layers.overlay;
@@ -1098,42 +1086,42 @@ function circleDot(x, y, r, fill) {
       return lane;
     }
 
-// Dock arcs: outer ring for upper lane, inner ring for lower lane
-function renderDockArcOverlay(group, upperLane, lowerLane, now) {
-  if (!group) return;
+    // Dock arcs: outer ring for upper lane, inner ring for lower lane
+    function renderDockArcOverlay(group, upperLane, lowerLane, now) {
+    if (!group) return;
 
-  const hasModule =
-    window.FerryDockArcOverlay &&
-    typeof window.FerryDockArcOverlay.render === "function";
+    const hasModule =
+      window.FerryDockArcOverlay &&
+      typeof window.FerryDockArcOverlay.render === "function";
 
-  if (hasModule) {
-    try {
-      window.FerryDockArcOverlay.render({
-        group,
-        upperLane,
-        lowerLane,
-        now,
-        geometry: window.FerryGeometry || null,
-      });
+    if (hasModule) {
+      try {
+        window.FerryDockArcOverlay.render({
+          group,
+          upperLane,
+          lowerLane,
+          now,
+          geometry: window.FerryGeometry || null,
+        });
 
-      // Module handled drawing; no fallback.
-      return;
-    } catch (err) {
-      console.error("[ferryClock] FerryDockArcOverlay.render error:", err);
-      // fall through to fallback below
+        // Module handled drawing; no fallback.
+        return;
+      } catch (err) {
+        console.error("[ferryClock] FerryDockArcOverlay.render error:", err);
+        // fall through to fallback below
+      }
+    } else {
+      console.warn("[ferryClock] FerryDockArcOverlay module missing; using fallback arcs");
     }
-  } else {
-    console.warn("[ferryClock] FerryDockArcOverlay module missing; using fallback arcs");
-  }
 
-  // Only reach here if module is missing or failed → use legacy fallback.
-  console.warn("[ferryClock] DockArcOverlay fallback path used");
+      // Only reach here if module is missing or failed → use legacy fallback.
+      console.warn("[ferryClock] DockArcOverlay fallback path used");
 
-  if (upperLane) drawDockArcForLane(group, upperLane, "upper", now);
-  if (lowerLane) drawDockArcForLane(group, lowerLane, "lower", now);
-}
+      if (upperLane) drawDockArcForLane(group, upperLane, "upper", now);
+      if (lowerLane) drawDockArcForLane(group, lowerLane, "lower", now);
+    }
 
-renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
+    renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
 
     // Capacity pies: west / east auto slots (Cannon pies) - render from capacityOverlay.js
     function renderCapacityOverlay(capacityGroup, state) {
@@ -1418,7 +1406,6 @@ renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
     if (!layers) return;
     layers.clear();
 
-    const ns = "http://www.w3.org/2000/svg";
     const t = document.createElementNS(ns, "text");
     t.setAttribute("x", "200");
     t.setAttribute("y", "200");
