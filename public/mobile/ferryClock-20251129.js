@@ -289,6 +289,10 @@ function initFerryGeometry() {
   }
 
 function setCurrentRoute(routeId, options = {}) {
+  if (typeof scheduleCacheByRoute === "object") {
+    delete scheduleCacheByRoute[routeId];
+  }
+
   if (!Number.isFinite(routeId) || routeId === currentRouteId) {
     return;
   }
@@ -493,28 +497,50 @@ async function prefetchRouteSchedules(routes) {
     return data.routes;
   }
 
-    async function fetchSchedule(routeId) {
-          // ---------------------------------------------------------------------------
-    // Phase 8: Centralized schedule accessor
-    // Single ownership point for schedule data & refresh semantics.
-    // ---------------------------------------------------------------------------
-    async function getRouteSchedule(routeId, options = {}) {
-      const { forceRefresh = false } = options;
+async function fetchSchedule(routeId) {
+  const id = routeId || currentRouteId || 5;
 
-      // Phase 8 Step 1:
-      // Behavior-preserving wrapper. Cache semantics unchanged.
-      // forceRefresh is accepted but not acted upon yet.
-
-      return fetchSchedule(routeId);
-    }
-
-    const id = routeId || currentRouteId || 5;
-    const res = await fetch(`/api/schedule?routeId=${encodeURIComponent(id)}`);
-    if (!res.ok) {
-      throw new Error("Failed to load schedule: HTTP " + res.status);
-    }
-    return res.json();
+  const res = await fetch(`/api/schedule?routeId=${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    throw new Error("Failed to load schedule: HTTP " + res.status);
   }
+  return res.json();
+}
+
+let lastScheduleServiceDayKey = null;
+
+function getServiceDayKeyPacific(date = new Date()) {
+  const d = new Date(date);
+  if (d.getHours() < 3) {
+    d.setDate(d.getDate() - 1);
+  }
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+const scheduleCacheByRoute = Object.create(null);
+
+async function getRouteSchedule(routeId, options = {}) {
+  const { forceRefresh = false } = options;
+
+  const currentServiceDayKey = getServiceDayKeyPacific(new Date());
+  if (lastScheduleServiceDayKey !== currentServiceDayKey) {
+    for (const k in scheduleCacheByRoute) {
+      delete scheduleCacheByRoute[k];
+    }
+    lastScheduleServiceDayKey = currentServiceDayKey;
+  }
+
+
+  if (scheduleCacheByRoute[routeId] && forceRefresh !== true) {
+    return scheduleCacheByRoute[routeId];
+  }
+
+  const schedule = await fetchSchedule(routeId);
+  scheduleCacheByRoute[routeId] = schedule;
+  return schedule;
+}
+
 
 function normalizeScheduleForRender(schedule, now) {
   if (!schedule) {
@@ -878,7 +904,7 @@ async function onScheduleToggleClick() {
       scheduleToggleBtnEl.disabled = true;
       scheduleToggleBtnEl.textContent = "Loading schedule...";
 
-      const schedule = await fetchSchedule(currentRouteId);
+      const schedule = await getRouteSchedule(currentRouteId, { forceRefresh: false });
       renderSchedule(schedule);
 
       // Normal document flow: page scroll only

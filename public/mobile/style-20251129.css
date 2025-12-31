@@ -162,8 +162,11 @@ body {
   padding: 8px 0 16px 0;
 }
 
+/* Dark mode: lock main content background to page background */
+body:not(.theme-light) #mobile-main {
+  background: #020617;
+}
 /* Make the clock behave better on small screens */
-
 #clockFace {
   max-width: 100vw;
   max-height: calc(100vh - 80px); /* leave space for header */
