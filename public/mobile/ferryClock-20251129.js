@@ -298,8 +298,8 @@ function setCurrentRoute(routeId, options = {}) {
   }
 
   currentRouteId = routeId;
+  startScheduleRefreshTimer(routeId);
   storeSelectedRouteId(routeId);
-
   dispatchRouteSelected(routeId);
 
   if (routeSelectEl) {
@@ -518,9 +518,19 @@ function getServiceDayKeyPacific(date = new Date()) {
   return d.getTime();
 }
 
+// schedule error-state tracking
+const scheduleStatusByRoute = Object.create(null);
+
+// read-only accessor for schedule status
+function getScheduleStatus(routeId) {
+  return scheduleStatusByRoute[routeId] || "unavailable";
+}
+
+// values: "fresh" | "stale" | "unavailable"
+
 const scheduleCacheByRoute = Object.create(null);
 
-async function getRouteSchedule(routeId, options = {}) {
+window.getRouteSchedule = async function getRouteSchedule(routeId, options = {}) {
   const { forceRefresh = false } = options;
 
   const currentServiceDayKey = getServiceDayKeyPacific(new Date());
@@ -531,16 +541,57 @@ async function getRouteSchedule(routeId, options = {}) {
     lastScheduleServiceDayKey = currentServiceDayKey;
   }
 
-
   if (scheduleCacheByRoute[routeId] && forceRefresh !== true) {
     return scheduleCacheByRoute[routeId];
   }
 
-  const schedule = await fetchSchedule(routeId);
-  scheduleCacheByRoute[routeId] = schedule;
-  return schedule;
+  try {
+    const schedule = await fetchSchedule(routeId);
+    scheduleStatusByRoute[routeId] = "fresh";
+    scheduleCacheByRoute[routeId] = schedule;
+    return schedule;
+  } catch (err) {
+    if (scheduleCacheByRoute[routeId]) {
+      scheduleStatusByRoute[routeId] = "stale";
+      return scheduleCacheByRoute[routeId];
+    }
+    scheduleStatusByRoute[routeId] = "unavailable";
+    throw err;
+  }
+};
+
+// Phase 10: background schedule refresh (schedule only)
+let scheduleRefreshTimerId = null;
+const SCHEDULE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+function startScheduleRefreshTimer(routeId) {
+  stopScheduleRefreshTimer();
+
+  if (!routeId) return;
+
+  scheduleRefreshTimerId = setInterval(() => {
+    // Schedule-only refresh; no UI coupling
+    getRouteSchedule(routeId, { forceRefresh: true }).catch(() => {
+      // Silent: failures handled by cache semantics
+    });
+  }, SCHEDULE_REFRESH_INTERVAL_MS);
 }
 
+function stopScheduleRefreshTimer() {
+  if (scheduleRefreshTimerId !== null) {
+    clearInterval(scheduleRefreshTimerId);
+    scheduleRefreshTimerId = null;
+  }
+}
+
+// pause/resume schedule refresh when page visibility changes
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden === true) {
+    stopScheduleRefreshTimer();
+  } else {
+    startScheduleRefreshTimer(window.currentRouteId);
+  }
+});
 
 function normalizeScheduleForRender(schedule, now) {
   if (!schedule) {
