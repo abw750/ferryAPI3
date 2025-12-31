@@ -10,6 +10,7 @@
   let layersRef = null;
   let scheduleToggleBtnEl = null;
   let schedulePanelEl = null;
+  let lastServiceDayKey = null;
 
   // --- clock geometry ---
   const CX = 200;
@@ -364,11 +365,10 @@ function initRouteControls(routes, layers) {
         }
 
         setCurrentRoute(idNum, { routeObj: route });
-
-
+        applyRouteMenuSelection();
+        prefetchRouteSchedules(routes);
         // Do NOT close the picker here. User will hit "Done" when satisfied.
       });
-
       menu.appendChild(btn);
     });
   }
@@ -426,7 +426,7 @@ function initRouteControls(routes, layers) {
       routes.find((r) => r.routeId === initialRouteId) || null;
 
     setCurrentRoute(initialRouteId, { routeObj });
-}
+  }
 
   // Apply initial button styling now that currentRouteId is known.
   if (menu) {
@@ -459,6 +459,26 @@ function initRouteControls(routes, layers) {
 
 }
 
+async function prefetchRouteSchedules(routes) {
+  if (!Array.isArray(routes)) return;
+
+  for (const route of routes) {
+    const routeId = route?.routeId;
+    if (!routeId || routeId === currentRouteId) continue;
+
+    if (routeScheduleCache.has(routeId)) continue;
+
+    try {
+      const schedule = await fetchSchedule(routeId);
+      const normalized = normalizeScheduleForRender(schedule, new Date());
+      const ctx = buildRouteScheduleContext(routeId, normalized);
+      routeScheduleCache.set(routeId, ctx);
+    } catch (err) {
+      // Silent failure: prefetch must never affect UI
+      console.warn("[ferryClock] prefetch failed for route", routeId, err);
+    }
+  }
+}
 
   // ---------- backend calls (mirror dotApp.js contract) ----------
   async function fetchRoutes() {
@@ -474,6 +494,20 @@ function initRouteControls(routes, layers) {
   }
 
     async function fetchSchedule(routeId) {
+          // ---------------------------------------------------------------------------
+    // Phase 8: Centralized schedule accessor
+    // Single ownership point for schedule data & refresh semantics.
+    // ---------------------------------------------------------------------------
+    async function getRouteSchedule(routeId, options = {}) {
+      const { forceRefresh = false } = options;
+
+      // Phase 8 Step 1:
+      // Behavior-preserving wrapper. Cache semantics unchanged.
+      // forceRefresh is accepted but not acted upon yet.
+
+      return fetchSchedule(routeId);
+    }
+
     const id = routeId || currentRouteId || 5;
     const res = await fetch(`/api/schedule?routeId=${encodeURIComponent(id)}`);
     if (!res.ok) {
@@ -520,58 +554,27 @@ function normalizeScheduleForRender(schedule, now) {
   };
 }
 
-function renderSchedule(schedule) {
-  const normalized = normalizeScheduleForRender(schedule, new Date());
-  const now = normalized.now;
-  const nowMs = now.getTime();
+function getServiceDayKey3am(input) {
+  const dt = input instanceof Date ? new Date(input.getTime()) : new Date(input);
+  if (dt.getHours() < 3) dt.setDate(dt.getDate() - 1);
+  dt.setHours(0, 0, 0, 0);
+  return dt.getTime();
+}
 
-  if (!schedulePanelEl) return;
-  schedulePanelEl.innerHTML = "";
+function formatPacificTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    minute: "2-digit",
 
-  // ---- service-day (2:00 a.m.)
-  function getServiceDayKey(input) {
-    const dt = input instanceof Date ? new Date(input.getTime()) : new Date(input);
-    if (dt.getHours() < 3) dt.setDate(dt.getDate() - 1);
-    dt.setHours(0, 0, 0, 0);
-    return dt.getTime();
-  }
+    hour12: true,
+  });
+  return fmt.format(d);
+}
 
-  const serviceDayNow = getServiceDayKey(now);
-
-  const combined = normalized.rows.map(r => ({
-    ...r.raw,
-    side: r.side,
-    departureMs: r.departure.getTime(),
-  }));
-
-
-  // Allow a grace window so the last few sailings do not disappear immediately
-  // when the clock ticks past their departure time.
-  const GRACE_MINUTES = 30; // adjust as you like
-  const cutoffMs = nowMs - GRACE_MINUTES * 60 * 1000;
-
-  const future = combined.filter(s => s.departureMs >= cutoffMs);
-
-  if (!future.length) {
-    schedulePanelEl.textContent = "No remaining sailings.";
-    return;
-  }
-
-  // Split by service-day
-  const todaySection = [];
-  const tomorrowSection = [];
-
-  for (const s of future) {
-    const sd = getServiceDayKey(s.departureMs);
-    if (sd === serviceDayNow) todaySection.push(s);
-    else tomorrowSection.push(s);
-  }
-
-  // Final linear list: strictly render what the backend gives us
-  const finalList = future;
-  const nextAvailable = finalList.length ? finalList[0].departureMs : null;
-
-  // Header row only once
+function buildScheduleHeader(routeMeta) {
   const headerDiv = document.createElement("div");
   headerDiv.id = "schedule-header";
   headerDiv.style.display = "flex";
@@ -579,25 +582,16 @@ function renderSchedule(schedule) {
   headerDiv.style.justifyContent = "center";
   headerDiv.style.alignItems = "center";
 
-  // Light grey background bar
   headerDiv.style.background = "#474747ff";
-
-  // Vertical padding to give the bar height
   headerDiv.style.padding = "8px 0";
-
-  // Space below the bar before the schedule list
   headerDiv.style.marginBottom = "6px";
-
-  // Make the bar slightly rounded
   headerDiv.style.borderRadius = "6px";
-
 
   const titleSpan = document.createElement("div");
   const headerText =
     (routeInfoEl && routeInfoEl.textContent && routeInfoEl.textContent.trim()) ||
-    (normalized.route && normalized.route.description) ||
+    (routeMeta.route && routeMeta.description) ||
     "Current route";
-
   titleSpan.textContent = headerText;
   headerDiv.appendChild(titleSpan);
 
@@ -606,10 +600,7 @@ function renderSchedule(schedule) {
   changeBtn.id = "schedule-change-route-btn";
   changeBtn.textContent = "Change route";
 
-  // Add horizontal space between route title and button
-  changeBtn.style.marginLeft = "50px"; 
-
-  // Ensure pill shape even if CSS is stale (fallback for mobile/PWA)
+  changeBtn.style.marginLeft = "50px";
   changeBtn.style.borderRadius = "999px";
   changeBtn.style.padding = "6px 12px";
   changeBtn.style.border = "1px solid #4b5563";
@@ -617,22 +608,87 @@ function renderSchedule(schedule) {
   changeBtn.addEventListener("click", () => openRoutePicker());
   headerDiv.appendChild(changeBtn);
 
-  schedulePanelEl.appendChild(headerDiv);
+  return headerDiv;
+}
 
-  // Time formatter
-  function formatSeattleTime(iso) {
-    if (!iso) return "";
-    const d = new Date(iso);
-    const fmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Los_Angeles",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
+function buildScheduleRow(rowData) {
+  const row = document.createElement("tr");
+
+  const wCell = document.createElement("td");
+  const eCell = document.createElement("td");
+  const { westItem, eastItem, westDimmed, eastDimmed } = rowData;
+
+if (westItem) {
+  const t = formatPacificTime(westItem.departureTimeIso);
+  const name = westItem.vesselName || "";
+  wCell.textContent = name ? `${t} – ${name}` : t;
+  if (westDimmed) wCell.style.opacity = "0.6";
+}
+
+if (eastItem) {
+  const t = formatPacificTime(eastItem.departureTimeIso);
+  const name = eastItem.vesselName || "";
+  eCell.textContent = name ? `${t} – ${name}` : t;
+  if (eastDimmed) eCell.style.opacity = "0.6";
+}
+
+
+  row.appendChild(wCell);
+  row.appendChild(eCell);
+  return row;
+}
+
+function prepareScheduleRows(finalList, serviceDayNow, nextAvailable) {
+  const westList = finalList.filter(x => x.side === "west");
+  const eastList = finalList.filter(x => x.side === "east");
+  const maxRows = Math.max(westList.length, eastList.length);
+
+  const rows = [];
+
+  for (let i = 0; i < maxRows; i++) {
+    const westItem = westList[i] || null;
+    const eastItem = eastList[i] || null;
+
+    let rowTimeMs = null;
+    let westDimmed = false;
+    let eastDimmed = false;
+
+    if (westItem) {
+      rowTimeMs =
+        rowTimeMs == null
+          ? westItem.departureMs
+          : Math.min(rowTimeMs, westItem.departureMs);
+
+      const westServiceDay = getServiceDayKey3am(westItem.departureMs);
+      westDimmed =
+        westServiceDay !== serviceDayNow &&
+        westItem.departureMs !== nextAvailable;
+    }
+
+    if (eastItem) {
+      rowTimeMs =
+        rowTimeMs == null
+          ? eastItem.departureMs
+          : Math.min(rowTimeMs, eastItem.departureMs);
+
+      const eastServiceDay = getServiceDayKey3am(eastItem.departureMs);
+      eastDimmed =
+        eastServiceDay !== serviceDayNow &&
+        eastItem.departureMs !== nextAvailable;
+    }
+
+    rows.push({
+      westItem,
+      eastItem,
+      westDimmed,
+      eastDimmed
     });
-    return fmt.format(d);
   }
 
-  // Build single table
+  return rows;
+}
+
+function buildScheduleTable(tableCtx, finalList, serviceDayNow, nextAvailable) {
   const table = document.createElement("table");
   table.className = "schedule-table";
 
@@ -640,12 +696,9 @@ function renderSchedule(schedule) {
   const trh = document.createElement("tr");
 
   const thW = document.createElement("th");
-  thW.textContent =
-    (normalized.route && normalized.route.terminalNameWest) || "West";
-
+  thW.textContent = tableCtx.terminalNameWest || "West";
   const thE = document.createElement("th");
-  thE.textContent =
-    (normalized.route && normalized.route.terminalNameEast) || "East";
+  thE.textContent = tableCtx.terminalNameEast || "East";
 
   trh.appendChild(thW);
   trh.appendChild(thE);
@@ -654,109 +707,163 @@ function renderSchedule(schedule) {
 
   const tbody = document.createElement("tbody");
 
-  // Separate west/east inside finalList
-  const westList = finalList.filter(x => x.side === "west");
-  const eastList = finalList.filter(x => x.side === "east");
-  const maxRows = Math.max(westList.length, eastList.length);
+  const rows = prepareScheduleRows(
+    finalList,
+    serviceDayNow,
+    nextAvailable
+  );
 
-  const firstTomorrowMs = tomorrowSection.length
-    ? tomorrowSection[0].departureMs
-    : Infinity;
-
-  for (let i = 0; i < maxRows; i++) {
-    const row = document.createElement("tr");
-
-    const wCell = document.createElement("td");
-    const eCell = document.createElement("td");
-
-    // Track row-level earliest time (for "next available")
-    // and per-cell times (for shading).
-    let rowTimeMs = null;
-    let wTimeMs = null;
-    let eTimeMs = null;
-
-    if (westList[i]) {
-      wTimeMs = westList[i].departureMs;
-      // earliest time in this row for "nextAvailable" check
-      rowTimeMs =
-        rowTimeMs == null ? wTimeMs : Math.min(rowTimeMs, wTimeMs);
-
-      const t = formatSeattleTime(westList[i].departureTimeIso);
-      const name = westList[i].vesselName || "";
-      wCell.textContent = name ? `${t} – ${name}` : t;
-    }
-
-    if (eastList[i]) {
-      eTimeMs = eastList[i].departureMs;
-      // earliest time in this row for "nextAvailable" check
-      rowTimeMs =
-        rowTimeMs == null ? eTimeMs : Math.min(rowTimeMs, eTimeMs);
-
-      const t = formatSeattleTime(eastList[i].departureTimeIso);
-      const name = eastList[i].vesselName || "";
-      eCell.textContent = name ? `${t} – ${name}` : t;
-    }
-
-    // Dim each cell based on its OWN service-day, unless it
-    // corresponds to the overall next-available sailing.
-    if (wTimeMs != null) {
-      const wServiceDay = getServiceDayKey(wTimeMs);
-      const isTomorrowWest =
-        wServiceDay != null && wServiceDay !== serviceDayNow;
-
-      if (isTomorrowWest && rowTimeMs !== nextAvailable) {
-        wCell.style.opacity = "0.6";
-      }
-    }
-
-    if (eTimeMs != null) {
-      const eServiceDay = getServiceDayKey(eTimeMs);
-      const isTomorrowEast =
-        eServiceDay != null && eServiceDay !== serviceDayNow;
-
-      if (isTomorrowEast && rowTimeMs !== nextAvailable) {
-        eCell.style.opacity = "0.6";
-      }
-    }
-
-    row.appendChild(wCell);
-    row.appendChild(eCell);
+  for (const rowData of rows) {
+    const row = buildScheduleRow(rowData);
     tbody.appendChild(row);
   }
 
   table.appendChild(tbody);
+  return table;
+}
+
+function prepareScheduleTimeline(normalized) {
+  const now = normalized.now;
+  const nowMs = now.getTime();
+
+  const serviceDayNow = getServiceDayKey3am(now);
+
+  const combined = normalized.rows.map(r => ({
+    ...r.raw,
+    side: r.side,
+    departureMs: r.departure.getTime(),
+  }));
+
+  // Allow a grace window so the last few sailings do not disappear immediately
+  const GRACE_MINUTES = 30;
+  const cutoffMs = nowMs - GRACE_MINUTES * 60 * 1000;
+
+  const future = combined.filter(s => s.departureMs >= cutoffMs);
+
+  const finalList = future;
+  const nextAvailable = finalList.length ? finalList[0].departureMs : null;
+
+  return {
+    finalList,
+    serviceDayNow,
+    nextAvailable
+  };
+}
+
+function buildRouteScheduleContext(routeId, normalized) {
+  const timeline = prepareScheduleTimeline(normalized);
+  const rows = prepareScheduleRows(
+    timeline.finalList,
+    timeline.serviceDayNow,
+    timeline.nextAvailable
+  );
+
+  return {
+    routeId,
+    routeMeta: {
+      description: normalized.route?.description || "",
+      terminalNameWest: normalized.route?.terminalNameWest || "",
+      terminalNameEast: normalized.route?.terminalNameEast || ""
+    },
+    timeline,
+    rows
+  };
+}
+
+const routeScheduleCache = new Map();
+
+function buildScheduleTableContext(normalized) {
+  return {
+    labelWest: normalized.route?.labelWest,
+    labelEast: normalized.route?.labelEast,
+    terminalNameWest: normalized.route?.terminalNameWest,
+    terminalNameEast: normalized.route?.terminalNameEast
+  };
+}
+
+function renderSchedule(schedule) {
+  const now = new Date();
+  const serviceDayKeyNow = getServiceDayKey3am(now);
+
+  if (lastServiceDayKey !== serviceDayKeyNow) {
+    routeScheduleCache.clear();
+    lastServiceDayKey = serviceDayKeyNow;
+  }
+
+  const normalized = normalizeScheduleForRender(schedule, new Date());
+
+  schedulePanelEl.innerHTML = "";
+
+  const routeId = normalized.route?.routeId ?? null;
+
+  let routeSchedule = routeScheduleCache.get(routeId);
+  if (!routeSchedule) {
+    routeSchedule = buildRouteScheduleContext(routeId, normalized);
+    routeScheduleCache.set(routeId, routeSchedule);
+  }
+
+  const {
+    finalList,
+    serviceDayNow,
+    nextAvailable
+  } = routeSchedule.timeline;
+
+  if (!finalList.length) {
+    schedulePanelEl.textContent = "No remaining sailings.";
+    return;
+  }
+
+  const headerDiv = buildScheduleHeader(routeSchedule.routeMeta);
+  schedulePanelEl.appendChild(headerDiv);
+
+  const changeBtn = document.getElementById("schedule-change-route-btn");
+  if (changeBtn && scheduleToggleBtnEl.classList.contains("schedule-open")) {
+    changeBtn.classList.add("schedule-open");
+    changeBtn.style.backgroundColor = "#168a1a";
+    changeBtn.style.color = "#ffffff";
+    changeBtn.style.borderRadius = "999px";
+  }
+
+  const tableCtx = buildScheduleTableContext(normalized);
+
+  const table = buildScheduleTable(
+    tableCtx,
+    finalList,
+    serviceDayNow,
+    nextAvailable
+  );
   schedulePanelEl.appendChild(table);
 }
 
-  async function reloadScheduleIfOpen() {
-    if (
-      !scheduleToggleBtnEl ||
-      !schedulePanelEl ||
-      !scheduleToggleBtnEl.classList.contains("schedule-open")
-    ) {
-      return;
-    }
-
-    if (currentRouteId == null) {
-      return;
-    }
-
-    try {
-      scheduleToggleBtnEl.disabled = true;
-      scheduleToggleBtnEl.textContent = "Loading schedule...";
-
-      const schedule = await fetchSchedule(currentRouteId);
-      renderSchedule(schedule);
-
-      // Keep the button in "open" state
-      scheduleToggleBtnEl.textContent = "Hide ferry schedule";
-    } catch (err) {
-      console.error("[ferryClock] schedule reload error:", err);
-      schedulePanelEl.textContent = "Error loading schedule. Please try again.";
-    } finally {
-      scheduleToggleBtnEl.disabled = false;
-    }
+async function reloadScheduleIfOpen() {
+  if (
+    !scheduleToggleBtnEl ||
+    !schedulePanelEl ||
+    !scheduleToggleBtnEl.classList.contains("schedule-open")
+  ) {
+    return;
   }
+
+  if (currentRouteId == null) {
+    return;
+  }
+
+  try {
+    scheduleToggleBtnEl.disabled = true;
+    scheduleToggleBtnEl.textContent = "Loading schedule...";
+
+    const schedule = await getRouteSchedule(currentRouteId, { forceRefresh: false });
+    renderSchedule(schedule);
+
+    // Keep the button in "open" state
+    scheduleToggleBtnEl.textContent = "Hide ferry schedule";
+  } catch (err) {
+    console.error("[ferryClock] schedule reload error:", err);
+    schedulePanelEl.textContent = "Error loading schedule. Please try again.";
+  } finally {
+    scheduleToggleBtnEl.disabled = false;
+  }
+}
 
 async function onScheduleToggleClick() {
   if (!scheduleToggleBtnEl || !schedulePanelEl) return;
@@ -794,8 +901,8 @@ async function onScheduleToggleClick() {
       }
     } catch (err) {
       console.error("[ferryClock] schedule toggle error:", err);
-      schedulePanelEl.textContent =
-        "Error loading schedule. Please try again.";
+
+      schedulePanelEl.textContent = "Error loading schedule. Please try again.";
       schedulePanelEl.style.display = "block";
 
       scheduleToggleBtnEl.textContent = "Hide ferry schedule";
@@ -828,635 +935,635 @@ async function onScheduleToggleClick() {
   }
 }
 
-  async function refreshDotState(layers) {
-    // Always prefer the current value in the route selector, if present.
-    if (routeSelectEl && routeSelectEl.value) {
-      const maybeId = Number(routeSelectEl.value);
-      if (!Number.isNaN(maybeId) && maybeId > 0) {
-      }
-    }
-
-    if (currentRouteId == null) {
-      console.warn("[ferryClock] no routeId selected yet");
-      drawDebug(layers, "NO ROUTE");
-      return;
-    }
-
-    const url = `/api/dot-state?routeId=${encodeURIComponent(currentRouteId)}`;
-
-    try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error("Dot API failed: HTTP " + res.status);
-      }
-      const state = await res.json();
-
-      renderAnalogOverlay(state, layers);
-    } catch (err) {
-      console.error("[ferryClock] refreshDotState error:", err);
-      drawDebug(layers, "STATE ERROR");
+async function refreshDotState(layers) {
+  // Always prefer the current value in the route selector, if present.
+  if (routeSelectEl && routeSelectEl.value) {
+    const maybeId = Number(routeSelectEl.value);
+    if (!Number.isNaN(maybeId) && maybeId > 0) {
     }
   }
 
-  // ---------- overlay rendering ----------
-  function renderAnalogOverlay(state, layers) {
-    const { elNS, line, arrowHead, circleDot, barRect, addText } = window.FerrySvg;
-    const { describeArcPath } = window.FerryGeometry;
+  if (currentRouteId == null) {
+    console.warn("[ferryClock] no routeId selected yet");
+    drawDebug(layers, "NO ROUTE");
+    return;
+  }
 
-    layers.clear();
+  const url = `/api/dot-state?routeId=${encodeURIComponent(currentRouteId)}`;
 
-    // Clear pending refresh message if present.
-    if (routeInfoEl) {
-      const base = routeInfoEl.textContent.replace(" (pending refresh...)", "");
-      routeInfoEl.textContent = base;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error("Dot API failed: HTTP " + res.status);
     }
+    const state = await res.json();
 
-    const now = new Date();
-    const dockArcsGroup = ensureDockArcGroup(layers);
-    const capacityGroup = ensureCapacityGroup(layers);
+    renderAnalogOverlay(state, layers);
+  } catch (err) {
+    console.error("[ferryClock] refreshDotState error:", err);
+    drawDebug(layers, "STATE ERROR");
+  }
+}
 
-    function addShipIcon(g, cx, barY) {
-      const x = cx - SHIP_W / 2;
-      const y = barY - SHIP_H - SHIP_GAP;
+// ---------- overlay rendering ----------
+function renderAnalogOverlay(state, layers) {
+  const { elNS, line, arrowHead, circleDot, barRect, addText } = window.FerrySvg;
+  const { describeArcPath } = window.FerryGeometry;
 
-      // Pick icon based on current theme: light = default ferry.png, dark = ferry-white.png.
-      const isLight = document.body.classList.contains("theme-light");
-      const iconSrc = isLight
-        ? ICON_SRC
-        : ICON_SRC.replace(/ferry(-white)?\.png$/i, "ferry-white.png");
+  layers.clear();
 
-      const img = elNS("image", {
-        href: iconSrc,
-        x, y,
-        width: SHIP_W, height: SHIP_H,
-        preserveAspectRatio: "xMidYMid meet"
-      });
-      g.appendChild(img);
-    }
+  // Clear pending refresh message if present.
+  if (routeInfoEl) {
+    const base = routeInfoEl.textContent.replace(" (pending refresh...)", "");
+    routeInfoEl.textContent = base;
+  }
 
-    // Helper: normalize time labels for the clock
-    function formatClockLabel(raw) {
-      if (!raw || typeof raw !== "string") return "";
-      const trimmed = raw.trim();
-      if (!trimmed) return "";
+  const now = new Date();
+  const dockArcsGroup = ensureDockArcGroup(layers);
+  const capacityGroup = ensureCapacityGroup(layers);
 
-      // Already in plain hh:mm AM/PM → leave as-is
-      if (/^\d{1,2}:\d{2}\s?(AM|PM)$/i.test(trimmed)) {
-        return trimmed;
-      }
+  function addShipIcon(g, cx, barY) {
+    const x = cx - SHIP_W / 2;
+    const y = barY - SHIP_H - SHIP_GAP;
 
-      // Try ISO / Date-like strings
-      const d = new Date(trimmed);
-      if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleTimeString([], {
-          hour: "numeric",
-          minute: "2-digit"
-        });
-      }
+    // Pick icon based on current theme: light = default ferry.png, dark = ferry-white.png.
+    const isLight = document.body.classList.contains("theme-light");
+    const iconSrc = isLight
+      ? ICON_SRC
+      : ICON_SRC.replace(/ferry(-white)?\.png$/i, "ferry-white.png");
 
-      // Fallback: show whatever we got
+    const img = elNS("image", {
+      href: iconSrc,
+      x, y,
+      width: SHIP_W, height: SHIP_H,
+      preserveAspectRatio: "xMidYMid meet"
+    });
+    g.appendChild(img);
+  }
+
+  // Helper: normalize time labels for the clock
+  function formatClockLabel(raw) {
+    if (!raw || typeof raw !== "string") return "";
+    const trimmed = raw.trim();
+    if (!trimmed) return "";
+
+    // Already in plain hh:mm AM/PM → leave as-is
+    if (/^\d{1,2}:\d{2}\s?(AM|PM)$/i.test(trimmed)) {
       return trimmed;
     }
 
-    // Ensure a stable group for dock arcs; keep them behind top/bottom rows.
-    function ensureDockArcGroup(layers) {
-      const gOverlay = layers.overlay;
-      if (!gOverlay) return null;
-
-      let g = gOverlay.querySelector("#dock-arcs");
-      if (!g) {
-        g = elNS("g", { id: "dock-arcs" });
-        // Insert as first child so arcs render behind rows.
-        if (gOverlay.firstChild) {
-          gOverlay.insertBefore(g, gOverlay.firstChild);
-        } else {
-          gOverlay.appendChild(g);
-        }
-      }
-      // Clear arcs each render
-      g.innerHTML = "";
-      return g;
-    }
-
-    function drawDockArcForLane(arcsGroup, lane, laneKey, now) {
-      if (!arcsGroup || !lane) return;
-      if (!lane.atDock) return;
-      if (!lane.dockStartTime) return;
-
-      const startDate = new Date(lane.dockStartTime);
-      const startMs = startDate.getTime();
-      if (!Number.isFinite(startMs)) return;
-
-      const nowMs = now.getTime();
-      const elapsedMs = nowMs - startMs;
-      if (elapsedMs <= 0) return;
-
-      const elapsedSeconds = elapsedMs / 1000;
-      // 0–3600 seconds map to 0–1 arc fraction
-      let frac = elapsedSeconds / 3600;
-      if (frac <= 0) return;
-      if (frac > 1) frac = 1;
-
-      // Choose ring radius per lane
-      const radius = laneKey === "upper" ? R_DOCK_UPPER : R_DOCK_LOWER;
-
-      // Anchor: minute hand at dockStartTime, local time (minutes + seconds)
-      const localMinutes = (startDate.getMinutes() + startDate.getSeconds() / 60) % 60;
-      const startAngle = (Math.PI / 30) * localMinutes - Math.PI / 2;
-
-      // Span: fraction of full circle, clockwise
-      const spanAngle = frac * Math.PI * 2;
-      const endAngle = startAngle + spanAngle;
-
-      // Color semantics: match lane direction palette, strong vs light
-      const dirKey = laneDir(lane);
-      let scheme;
-      if (dirKey === "rtl") {
-        scheme = COLORS.rtl;
-      } else if (dirKey === "ltr") {
-        scheme = COLORS.ltr;
-      } else {
-        return; // unknown direction, do not draw arc
-      }
-
-      const lowConfidence = !!lane.dockStartIsSynthetic || !!lane.isStale;
-      const strokeColor = lowConfidence ? scheme.light : scheme.strong;
-
-      if (frac >= 0.999) {
-        // Full circle: draw circle stroke instead of arc
-        const circle = elNS("circle", {
-          cx: String(CX),
-          cy: String(CY),
-          r: String(radius),
-          fill: "none",
-          stroke: strokeColor,
-          "stroke-width": String(DOCK_ARC_THICKNESS),
-        });
-        arcsGroup.appendChild(circle);
-      } else {
-        const path = elNS("path", {
-          d: describeArcPath(CX, CY, radius, startAngle, endAngle),
-          fill: "none",
-          stroke: strokeColor,
-          "stroke-width": String(DOCK_ARC_THICKNESS),
-          "stroke-linecap":"butt",
-        });
-        arcsGroup.appendChild(path);
-      }
-    }
-
-    // ---- Capacity donuts (Cannon: auto spaces per terminal) ----
-
-    function ensureCapacityGroup(layers) {
-      const gOverlay = layers.overlay;
-      if (!gOverlay) return null;
-
-      let g = gOverlay.querySelector("#capacity-pies");
-      if (!g) {
-        g = elNS("g", { id: "capacity-pies" });
-        // Put pies above dock arcs but below lanes.
-        const dock = gOverlay.querySelector("#dock-arcs");
-        if (dock && dock.nextSibling) {
-          gOverlay.insertBefore(g, dock.nextSibling);
-        } else {
-          gOverlay.appendChild(g);
-        }
-      }
-      g.innerHTML = "";
-      return g;
-    }
-
-    if (!state || !state.lanes) {
-      console.warn("[ferryClock] invalid state payload for overlay; drawing DEBUG only");
-      addText(layers.top, "NO STATE", CX, CY);
-      return;
-    }
-
-    const rawUpperLane = state.lanes.upper || null;
-    const rawLowerLane = state.lanes.lower || null;
-
-    const route = state.route || {};
-    const meta = state.meta || {};
-    const fallbackMeta = meta.fallback || {};
-    const laneFallback = fallbackMeta.lanes || {};
-
-    const upperFallbackStatus = laneFallback.upper || null;
-    const lowerFallbackStatus = laneFallback.lower || null;
-
-    const upperLane = normalizeLaneForRender(rawUpperLane, upperFallbackStatus);
-    const lowerLane = normalizeLaneForRender(rawLowerLane, lowerFallbackStatus);
-
-    if (!upperLane && !lowerLane) {
-      console.warn("[ferryClock] no upper/lower lanes in state; drawing DEBUG only");
-      addText(layers.top, "NO LANES", CX, CY);
-      return;
-    }
-
-    function classifyLaneStatus(lane, fallbackStatus) {
-      const fb = (fallbackStatus || "").toLowerCase();
-
-      // If backend explicitly marks lane as missing, honor that.
-      if (fb === "missing") {
-        return "missing";
-      }
-
-      // No lane object at all.
-      if (!lane) {
-        return "missing";
-      }
-
-      const hasRealVessel =
-        lane.vesselId != null &&
-        lane.vesselName &&
-        String(lane.vesselName).trim().toLowerCase() !== "unknown";
-
-      const phase = (lane.phase || "").toUpperCase();
-      const hasTiming =
-        !!(lane.scheduledDeparture ||
-           lane.scheduledDepartureTime ||
-           lane.eta ||
-           lane.estimatedArrivalTime ||
-           lane.currentArrivalTime);
-
-      const looksNullSkeleton =
-        !hasRealVessel &&
-        (!phase || phase === "UNKNOWN") &&
-        !hasTiming;
-
-      if (looksNullSkeleton) {
-        // Skeleton placeholder: treat as effectively no lane.
-        return "missing";
-      }
-
-      if (lane.isStale) {
-        return "stale";
-      }
-
-      return "live";
-    }
-
-    function normalizeLaneForRender(lane, fallbackStatus) {
-      const status = classifyLaneStatus(lane, fallbackStatus);
-      if (status === "missing") {
-        return null;
-      }
-      // For now live vs stale both render as present; styling can
-      // differentiate later if needed.
-      return lane;
-    }
-
-    // Dock arcs: outer ring for upper lane, inner ring for lower lane
-    function renderDockArcOverlay(group, upperLane, lowerLane, now) {
-    if (!group) return;
-
-    const hasModule =
-      window.FerryDockArcOverlay &&
-      typeof window.FerryDockArcOverlay.render === "function";
-
-    if (hasModule) {
-      try {
-        window.FerryDockArcOverlay.render({
-          group,
-          upperLane,
-          lowerLane,
-          now,
-          geometry: window.FerryGeometry || null,
-        });
-
-        // Module handled drawing; no fallback.
-        return;
-      } catch (err) {
-        console.error("[ferryClock] FerryDockArcOverlay.render error:", err);
-        // fall through to fallback below
-      }
-    } else {
-      console.warn("[ferryClock] FerryDockArcOverlay module missing; using fallback arcs");
-    }
-
-      // Only reach here if module is missing or failed → use legacy fallback.
-      console.warn("[ferryClock] DockArcOverlay fallback path used");
-
-      if (upperLane) drawDockArcForLane(group, upperLane, "upper", now);
-      if (lowerLane) drawDockArcForLane(group, lowerLane, "lower", now);
-    }
-
-    renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
-
-    // Capacity pies: west / east auto slots (Cannon pies) - render from capacityOverlay.js
-    function renderCapacityOverlay(capacityGroup, state) {
-      if (!capacityGroup) return;
-
-      if (window.FerryCapacityOverlay &&
-          typeof window.FerryCapacityOverlay.render === "function") {
-        try {
-          window.FerryCapacityOverlay.render({ group: capacityGroup, state });
-        } catch (err) {
-          console.error("[ferryClock] FerryCapacityOverlay.render error:", err);
-        }
-      }
-    }
-    
-    if (capacityGroup) {
-      renderCapacityOverlay(capacityGroup, state);
-    }
-
-
-    // Map direction enum to "ltr"/"rtl" and scheme
-    function laneDir(lane) {
-      const d = (lane?.direction || "").toUpperCase();
-      if (d === "WEST_TO_EAST") return "ltr";
-      if (d === "EAST_TO_WEST") return "rtl";
-      return null;
-    }
-
-    // Expose for external overlay modules (dockArcOverlay, etc.)
-    window.FerryLaneDir = laneDir;
-
-    function isUnderway(lane) {
-      const phase = (lane?.phase || "").toUpperCase();
-      return phase === "UNDERWAY";
-    }
-
-    // Provide shared geometry + helpers to laneOverlay.js
-    if (window.FerryLaneOverlay &&
-        typeof window.FerryLaneOverlay.injectHelpers === "function") {
-      try {
-        window.FerryLaneOverlay.injectHelpers({
-          CX,
-          CY,
-          laneDir,
-          isUnderway,
-          barRect,
-          circleDot,
-          addShipIcon,
-          formatClockLabel,
-          COLORS,
-          BAR_W,
-          BAR_THICKNESS,
-          BAR_Y_OFFSET,
-          LABEL_GAP,
-        });
-      } catch (err) {
-        console.error("[ferryClock] FerryLaneOverlay.injectHelpers error:", err);
-      }
-    }
-
-    // Straight bar geometry
-    function drawLaneRow(group, lane, yRow) {
-      if (!lane) return;
-      const dirKey = laneDir(lane);
-      const underway = isUnderway(lane);
-      const scheme = dirKey === "rtl" ? COLORS.rtl : COLORS.ltr;
-      const barWidth = BAR_W;
-      const xL = CX - barWidth / 2;
-      const xR = CX + barWidth / 2;
-      const barY = (yRow < CY) ? (yRow + BAR_Y_OFFSET) : (yRow - BAR_Y_OFFSET);
-
-      // ---- direction arrow on 12–6 axis ----
-      if (dirKey) {
-        const y0 = yRow;
-        const halfLen = 28;
-        const head = 8;
-        const arrowColor = underway ? scheme.strong : scheme.light;
-        const axL = CX - halfLen;
-        const axR = CX + halfLen;
-
-        group.appendChild(line(axL, y0, axR, y0, arrowColor, 3));
-
-        if (dirKey === "ltr") {
-          group.appendChild(arrowHead(axR, y0, 0, arrowColor, 3, head));
-          if (!underway) group.appendChild(circleDot(axL, y0, 4, arrowColor));
-        } else {
-          group.appendChild(arrowHead(axL, y0, Math.PI, arrowColor, 3, head));
-          if (!underway) group.appendChild(circleDot(axR, y0, 4, arrowColor));
-        }
-      } else {
-        addText(group, "--", CX, yRow, { fontSize: "14", fill: "#999" });
-      }
-
-      // ---- transit bar + moving dot (using dotPosition) ----
-      if (dirKey) {
-        // 1) always draw grey track (full route as a thick bar)
-        group.appendChild(barRect(xL, xR, barY, BAR_THICKNESS, COLORS.track));
-
-        // normalized progress from backend
-        let pos = lane.dotPosition;
-        if (typeof pos !== "number" || !isFinite(pos)) pos = 0;
-        pos = Math.max(0, Math.min(1, pos));
-
-        let frac;
-        if (dirKey === "rtl") {
-          // EAST → WEST = right→left
-          frac = 1 - pos;
-        } else {
-          // WEST → EAST = left→right
-          frac = pos;
-        }
-
-        const xp = xL + frac * (xR - xL);
-
-        if (underway) {
-          // colored progress segment (already-transited portion) - semi transparent
-          if (dirKey === "ltr") {
-            group.appendChild(barRect(xL, xp, barY, BAR_THICKNESS, scheme.strong));
-          } else {
-            group.appendChild(barRect(xR, xp, barY, BAR_THICKNESS, scheme.strong));
-          }
-
-          // moving dot at the leading edge - fully opaque, on top
-          group.appendChild(circleDot(xp, barY, 5.5, scheme.dot));
-          addShipIcon(group, xp, barY);
-
-        } else {
-          // Not underway: dot only when lane is actually at the dock.
-          // If neither underway nor atDock, we treat this as a scheduled-only
-          // case: show the track and time label, but no dot/ship.
-          const originIsWest = dirKey === "ltr";
-          const originX = originIsWest ? xL : xR;
-
-          if (lane.atDock) {
-            group.appendChild(circleDot(originX, barY, 5.5, scheme.dot));
-            addShipIcon(group, originX, barY);
-          }
-        }
-
-        // ---- labels (simplified: sched at origin while docked, ETA at dest while underway) ----
-        const labelY = barY + LABEL_GAP;
-        const originX = dirKey === "ltr" ? xL : xR;
-        const destX   = dirKey === "ltr" ? xR : xL;
-        const originAnchor = dirKey === "ltr" ? "start" : "end";
-        const destAnchor   = dirKey === "ltr" ? "end" : "start";
-        const schedRaw = lane.scheduledDeparture || lane.scheduledDepartureTime || "";
-        const etaRaw   = lane.eta || lane.estimatedArrivalTime || "";
-        const sched = formatClockLabel(schedRaw);
-        const eta   = formatClockLabel(etaRaw);
-
-        if (!underway && sched) {
-          addText(group, sched, originX, labelY, {
-            anchor: originAnchor,
-            fontSize: "10",
-            fill: "#111"
-          });
-        } else if (underway && eta) {
-          addText(group, eta, destX, labelY, {
-            anchor: destAnchor,
-            fontSize: "10",
-            fill: "#111"
-          });
-        }
-      }
-
-      // ---- vessel name  ----
-      const name = (lane.vesselName && String(lane.vesselName).trim()) || "—";
-      const nameY = (yRow >= CY) ? (yRow - 12) : (yRow + 20);
-      addText(group, name, CX, nameY, {
-        fontSize: "12",
-        fill: "#222"
+    // Try ISO / Date-like strings
+    const d = new Date(trimmed);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit"
       });
     }
 
-    function renderLaneOverlay(topGroup, bottomGroup, upperLane, lowerLane, now) {
-      if (!topGroup && !bottomGroup) return;
+    // Fallback: show whatever we got
+    return trimmed;
+  }
 
-      // Allow external module to participate.
-      if (window.FerryLaneOverlay &&
-          typeof window.FerryLaneOverlay.render === "function") {
-        try {
-          // Reset sentinel before each render cycle.
-          window.__LANE_OVERLAY_OK__ = false;
+  // Ensure a stable group for dock arcs; keep them behind top/bottom rows.
+  function ensureDockArcGroup(layers) {
+    const gOverlay = layers.overlay;
+    if (!gOverlay) return null;
 
-          window.FerryLaneOverlay.render({
-            topGroup,
-            bottomGroup,
-            upperLane,
-            lowerLane,
-            now,
-            CX,
-            CY,
-          });
-        } catch (err) {
-          console.error("[ferryClock] FerryLaneOverlay.render error:", err);
-          window.__LANE_OVERLAY_OK__ = false;
-        }
-      }
-
-      // If the module signaled success, skip fallback to avoid double-drawing.
-      if (window.__LANE_OVERLAY_OK__ === true) {
-        return;
-      }
-
-      // Fallback / baseline: original implementation.
-      console.warn("[ferryClock] LaneOverlay fallback path used");
-
-      if (upperLane) {
-        drawLaneRow(topGroup, upperLane, 95);
-      }
-
-      if (lowerLane) {
-        drawLaneRow(bottomGroup, lowerLane, 305);
+    let g = gOverlay.querySelector("#dock-arcs");
+    if (!g) {
+      g = elNS("g", { id: "dock-arcs" });
+      // Insert as first child so arcs render behind rows.
+      if (gOverlay.firstChild) {
+        gOverlay.insertBefore(g, gOverlay.firstChild);
+      } else {
+        gOverlay.appendChild(g);
       }
     }
+    // Clear arcs each render
+    g.innerHTML = "";
+    return g;
+  }
 
-    renderLaneOverlay(layers.top, layers.bottom, upperLane, lowerLane, now);
-        // Dial-side WEST / EAST labels using same precedence as dotApp (Cannon: backend route drives labels)
-    const labelWestText =
-      (route.labelWest && String(route.labelWest).trim()) ||
-      (route.terminalNameWest && String(route.terminalNameWest).trim()) ||
-      "";
-    const labelEastText =
-      (route.labelEast && String(route.labelEast).trim()) ||
-      (route.terminalNameEast && String(route.terminalNameEast).trim()) ||
-      "";
+  function drawDockArcForLane(arcsGroup, lane, laneKey, now) {
+    if (!arcsGroup || !lane) return;
+    if (!lane.atDock) return;
+    if (!lane.dockStartTime) return;
 
-    if (labelWestText || labelEastText) {
-      // Horizontal positions aligned with lane bars (Cannon: west=left, east=right)
-      const barWidth = BAR_W;
+    const startDate = new Date(lane.dockStartTime);
+    const startMs = startDate.getTime();
+    if (!Number.isFinite(startMs)) return;
 
-      // Base radius from center to bar end, plus extra outward offset
-      const offset = barWidth / 2 + 50; // 10px original + 50px outward
+    const nowMs = now.getTime();
+    const elapsedMs = nowMs - startMs;
+    if (elapsedMs <= 0) return;
 
-      // Symmetric positions on 9–3 axis
-      const xWestLabel = CX - offset;
-      const xEastLabel = CX + offset;
+    const elapsedSeconds = elapsedMs / 1000;
+    // 0–3600 seconds map to 0–1 arc fraction
+    let frac = elapsedSeconds / 3600;
+    if (frac <= 0) return;
+    if (frac > 1) frac = 1;
 
-      // Vertically centered between upper and lower lanes (on 9–3 axis)
-      const yMid = CY;
+    // Choose ring radius per lane
+    const radius = laneKey === "upper" ? R_DOCK_UPPER : R_DOCK_LOWER;
 
-      // WEST label
-      if (labelWestText) {
-        const x = xWestLabel;
-        const y = yMid;
-        const t = elNS("text", {
-          x: String(x),
-          y: String(y),
-          "text-anchor": "middle",
-          "dominant-baseline": "middle",
-          // "font-weight": "bold",
-          "font-size": "12",
-          fill: "#2b2f9aff",
-          transform: `rotate(-90 ${x} ${y})`,
-        });
-        t.textContent = labelWestText;
-        layers.top.appendChild(t);
-      }
+    // Anchor: minute hand at dockStartTime, local time (minutes + seconds)
+    const localMinutes = (startDate.getMinutes() + startDate.getSeconds() / 60) % 60;
+    const startAngle = (Math.PI / 30) * localMinutes - Math.PI / 2;
 
-      // EAST label
-      if (labelEastText) {
-        const x = xEastLabel;
-        const y = yMid;
-        const t = elNS("text", {
-          x: String(x),
-          y: String(y),
-          "text-anchor": "middle",
-          "dominant-baseline": "middle",
-          // "font-weight": "bold",
-          "font-size": "12",
-          fill: "#2b2f9aff",
-          transform: `rotate(90 ${x} ${y})`,
-        });
-        t.textContent = labelEastText;
-        layers.top.appendChild(t);
-      }
+    // Span: fraction of full circle, clockwise
+    const spanAngle = frac * Math.PI * 2;
+    const endAngle = startAngle + spanAngle;
+
+    // Color semantics: match lane direction palette, strong vs light
+    const dirKey = laneDir(lane);
+    let scheme;
+    if (dirKey === "rtl") {
+      scheme = COLORS.rtl;
+    } else if (dirKey === "ltr") {
+      scheme = COLORS.ltr;
+    } else {
+      return; // unknown direction, do not draw arc
+    }
+
+    const lowConfidence = !!lane.dockStartIsSynthetic || !!lane.isStale;
+    const strokeColor = lowConfidence ? scheme.light : scheme.strong;
+
+    if (frac >= 0.999) {
+      // Full circle: draw circle stroke instead of arc
+      const circle = elNS("circle", {
+        cx: String(CX),
+        cy: String(CY),
+        r: String(radius),
+        fill: "none",
+        stroke: strokeColor,
+        "stroke-width": String(DOCK_ARC_THICKNESS),
+      });
+      arcsGroup.appendChild(circle);
+    } else {
+      const path = elNS("path", {
+        d: describeArcPath(CX, CY, radius, startAngle, endAngle),
+        fill: "none",
+        stroke: strokeColor,
+        "stroke-width": String(DOCK_ARC_THICKNESS),
+        "stroke-linecap":"butt",
+      });
+      arcsGroup.appendChild(path);
     }
   }
 
-  // Draws a central debug label if we fail early.
-  function drawDebug(layers, msg) {
-    if (!layers) return;
-    layers.clear();
+  // ---- Capacity donuts (Cannon: auto spaces per terminal) ----
 
-    const t = document.createElementNS(ns, "text");
-    t.setAttribute("x", "200");
-    t.setAttribute("y", "200");
-    t.setAttribute("text-anchor", "middle");
-    t.setAttribute("font-size", "14");
-    t.setAttribute("fill", "#ef4444");
-    t.textContent = msg || "DEBUG";
-    layers.top.appendChild(t);
+  function ensureCapacityGroup(layers) {
+    const gOverlay = layers.overlay;
+    if (!gOverlay) return null;
+
+    let g = gOverlay.querySelector("#capacity-pies");
+    if (!g) {
+      g = elNS("g", { id: "capacity-pies" });
+      // Put pies above dock arcs but below lanes.
+      const dock = gOverlay.querySelector("#dock-arcs");
+      if (dock && dock.nextSibling) {
+        gOverlay.insertBefore(g, dock.nextSibling);
+      } else {
+        gOverlay.appendChild(g);
+      }
+    }
+    g.innerHTML = "";
+    return g;
   }
 
-  // ---------- wait until faceRenderer has registered getFaceLayers ----------
-  function waitForFaceLayers() {
-    return new Promise(resolve => {
-      if (typeof window.getFaceLayers === "function") {
-        return resolve(window.getFaceLayers());
+  if (!state || !state.lanes) {
+    console.warn("[ferryClock] invalid state payload for overlay; drawing DEBUG only");
+    addText(layers.top, "NO STATE", CX, CY);
+    return;
+  }
+
+  const rawUpperLane = state.lanes.upper || null;
+  const rawLowerLane = state.lanes.lower || null;
+
+  const route = state.route || {};
+  const meta = state.meta || {};
+  const fallbackMeta = meta.fallback || {};
+  const laneFallback = fallbackMeta.lanes || {};
+
+  const upperFallbackStatus = laneFallback.upper || null;
+  const lowerFallbackStatus = laneFallback.lower || null;
+
+  const upperLane = normalizeLaneForRender(rawUpperLane, upperFallbackStatus);
+  const lowerLane = normalizeLaneForRender(rawLowerLane, lowerFallbackStatus);
+
+  if (!upperLane && !lowerLane) {
+    console.warn("[ferryClock] no upper/lower lanes in state; drawing DEBUG only");
+    addText(layers.top, "NO LANES", CX, CY);
+    return;
+  }
+
+  function classifyLaneStatus(lane, fallbackStatus) {
+    const fb = (fallbackStatus || "").toLowerCase();
+
+    // If backend explicitly marks lane as missing, honor that.
+    if (fb === "missing") {
+      return "missing";
+    }
+
+    // No lane object at all.
+    if (!lane) {
+      return "missing";
+    }
+
+    const hasRealVessel =
+      lane.vesselId != null &&
+      lane.vesselName &&
+      String(lane.vesselName).trim().toLowerCase() !== "unknown";
+
+    const phase = (lane.phase || "").toUpperCase();
+    const hasTiming =
+      !!(lane.scheduledDeparture ||
+          lane.scheduledDepartureTime ||
+          lane.eta ||
+          lane.estimatedArrivalTime ||
+          lane.currentArrivalTime);
+
+    const looksNullSkeleton =
+      !hasRealVessel &&
+      (!phase || phase === "UNKNOWN") &&
+      !hasTiming;
+
+    if (looksNullSkeleton) {
+      // Skeleton placeholder: treat as effectively no lane.
+      return "missing";
+    }
+
+    if (lane.isStale) {
+      return "stale";
+    }
+
+    return "live";
+  }
+
+  function normalizeLaneForRender(lane, fallbackStatus) {
+    const status = classifyLaneStatus(lane, fallbackStatus);
+    if (status === "missing") {
+      return null;
+    }
+    // For now live vs stale both render as present; styling can
+    // differentiate later if needed.
+    return lane;
+  }
+
+  // Dock arcs: outer ring for upper lane, inner ring for lower lane
+  function renderDockArcOverlay(group, upperLane, lowerLane, now) {
+  if (!group) return;
+
+  const hasModule =
+    window.FerryDockArcOverlay &&
+    typeof window.FerryDockArcOverlay.render === "function";
+
+  if (hasModule) {
+    try {
+      window.FerryDockArcOverlay.render({
+        group,
+        upperLane,
+        lowerLane,
+        now,
+        geometry: window.FerryGeometry || null,
+      });
+
+      // Module handled drawing; no fallback.
+      return;
+    } catch (err) {
+      console.error("[ferryClock] FerryDockArcOverlay.render error:", err);
+      // fall through to fallback below
+    }
+  } else {
+    console.warn("[ferryClock] FerryDockArcOverlay module missing; using fallback arcs");
+  }
+
+    // Only reach here if module is missing or failed → use legacy fallback.
+    console.warn("[ferryClock] DockArcOverlay fallback path used");
+
+    if (upperLane) drawDockArcForLane(group, upperLane, "upper", now);
+    if (lowerLane) drawDockArcForLane(group, lowerLane, "lower", now);
+  }
+
+  renderDockArcOverlay(dockArcsGroup, upperLane, lowerLane, now);
+
+  // Capacity pies: west / east auto slots (Cannon pies) - render from capacityOverlay.js
+  function renderCapacityOverlay(capacityGroup, state) {
+    if (!capacityGroup) return;
+
+    if (window.FerryCapacityOverlay &&
+        typeof window.FerryCapacityOverlay.render === "function") {
+      try {
+        window.FerryCapacityOverlay.render({ group: capacityGroup, state });
+      } catch (err) {
+        console.error("[ferryClock] FerryCapacityOverlay.render error:", err);
+      }
+    }
+  }
+  
+  if (capacityGroup) {
+    renderCapacityOverlay(capacityGroup, state);
+  }
+
+
+  // Map direction enum to "ltr"/"rtl" and scheme
+  function laneDir(lane) {
+    const d = (lane?.direction || "").toUpperCase();
+    if (d === "WEST_TO_EAST") return "ltr";
+    if (d === "EAST_TO_WEST") return "rtl";
+    return null;
+  }
+
+  // Expose for external overlay modules (dockArcOverlay, etc.)
+  window.FerryLaneDir = laneDir;
+
+  function isUnderway(lane) {
+    const phase = (lane?.phase || "").toUpperCase();
+    return phase === "UNDERWAY";
+  }
+
+  // Provide shared geometry + helpers to laneOverlay.js
+  if (window.FerryLaneOverlay &&
+      typeof window.FerryLaneOverlay.injectHelpers === "function") {
+    try {
+      window.FerryLaneOverlay.injectHelpers({
+        CX,
+        CY,
+        laneDir,
+        isUnderway,
+        barRect,
+        circleDot,
+        addShipIcon,
+        formatClockLabel,
+        COLORS,
+        BAR_W,
+        BAR_THICKNESS,
+        BAR_Y_OFFSET,
+        LABEL_GAP,
+      });
+    } catch (err) {
+      console.error("[ferryClock] FerryLaneOverlay.injectHelpers error:", err);
+    }
+  }
+
+  // Straight bar geometry
+  function drawLaneRow(group, lane, yRow) {
+    if (!lane) return;
+    const dirKey = laneDir(lane);
+    const underway = isUnderway(lane);
+    const scheme = dirKey === "rtl" ? COLORS.rtl : COLORS.ltr;
+    const barWidth = BAR_W;
+    const xL = CX - barWidth / 2;
+    const xR = CX + barWidth / 2;
+    const barY = (yRow < CY) ? (yRow + BAR_Y_OFFSET) : (yRow - BAR_Y_OFFSET);
+
+    // ---- direction arrow on 12–6 axis ----
+    if (dirKey) {
+      const y0 = yRow;
+      const halfLen = 28;
+      const head = 8;
+      const arrowColor = underway ? scheme.strong : scheme.light;
+      const axL = CX - halfLen;
+      const axR = CX + halfLen;
+
+      group.appendChild(line(axL, y0, axR, y0, arrowColor, 3));
+
+      if (dirKey === "ltr") {
+        group.appendChild(arrowHead(axR, y0, 0, arrowColor, 3, head));
+        if (!underway) group.appendChild(circleDot(axL, y0, 4, arrowColor));
+      } else {
+        group.appendChild(arrowHead(axL, y0, Math.PI, arrowColor, 3, head));
+        if (!underway) group.appendChild(circleDot(axR, y0, 4, arrowColor));
+      }
+    } else {
+      addText(group, "--", CX, yRow, { fontSize: "14", fill: "#999" });
+    }
+
+    // ---- transit bar + moving dot (using dotPosition) ----
+    if (dirKey) {
+      // 1) always draw grey track (full route as a thick bar)
+      group.appendChild(barRect(xL, xR, barY, BAR_THICKNESS, COLORS.track));
+
+      // normalized progress from backend
+      let pos = lane.dotPosition;
+      if (typeof pos !== "number" || !isFinite(pos)) pos = 0;
+      pos = Math.max(0, Math.min(1, pos));
+
+      let frac;
+      if (dirKey === "rtl") {
+        // EAST → WEST = right→left
+        frac = 1 - pos;
+      } else {
+        // WEST → EAST = left→right
+        frac = pos;
       }
 
-      let attempts = 0;
-      const maxAttempts = 50;
-      const iv = setInterval(() => {
-        attempts++;
-        if (typeof window.getFaceLayers === "function") {
-          clearInterval(iv);
-          resolve(window.getFaceLayers());
-        } else if (attempts >= maxAttempts) {
-          clearInterval(iv);
-          console.warn("[ferryClock] getFaceLayers() never appeared after", attempts, "checks");
-          resolve(null);
+      const xp = xL + frac * (xR - xL);
+
+      if (underway) {
+        // colored progress segment (already-transited portion) - semi transparent
+        if (dirKey === "ltr") {
+          group.appendChild(barRect(xL, xp, barY, BAR_THICKNESS, scheme.strong));
+        } else {
+          group.appendChild(barRect(xR, xp, barY, BAR_THICKNESS, scheme.strong));
         }
-      }, 100);
+
+        // moving dot at the leading edge - fully opaque, on top
+        group.appendChild(circleDot(xp, barY, 5.5, scheme.dot));
+        addShipIcon(group, xp, barY);
+
+      } else {
+        // Not underway: dot only when lane is actually at the dock.
+        // If neither underway nor atDock, we treat this as a scheduled-only
+        // case: show the track and time label, but no dot/ship.
+        const originIsWest = dirKey === "ltr";
+        const originX = originIsWest ? xL : xR;
+
+        if (lane.atDock) {
+          group.appendChild(circleDot(originX, barY, 5.5, scheme.dot));
+          addShipIcon(group, originX, barY);
+        }
+      }
+
+      // ---- labels (simplified: sched at origin while docked, ETA at dest while underway) ----
+      const labelY = barY + LABEL_GAP;
+      const originX = dirKey === "ltr" ? xL : xR;
+      const destX   = dirKey === "ltr" ? xR : xL;
+      const originAnchor = dirKey === "ltr" ? "start" : "end";
+      const destAnchor   = dirKey === "ltr" ? "end" : "start";
+      const schedRaw = lane.scheduledDeparture || lane.scheduledDepartureTime || "";
+      const etaRaw   = lane.eta || lane.estimatedArrivalTime || "";
+      const sched = formatClockLabel(schedRaw);
+      const eta   = formatClockLabel(etaRaw);
+
+      if (!underway && sched) {
+        addText(group, sched, originX, labelY, {
+          anchor: originAnchor,
+          fontSize: "10",
+          fill: "#111"
+        });
+      } else if (underway && eta) {
+        addText(group, eta, destX, labelY, {
+          anchor: destAnchor,
+          fontSize: "10",
+          fill: "#111"
+        });
+      }
+    }
+
+    // ---- vessel name  ----
+    const name = (lane.vesselName && String(lane.vesselName).trim()) || "—";
+    const nameY = (yRow >= CY) ? (yRow - 12) : (yRow + 20);
+    addText(group, name, CX, nameY, {
+      fontSize: "12",
+      fill: "#222"
     });
   }
+
+  function renderLaneOverlay(topGroup, bottomGroup, upperLane, lowerLane, now) {
+    if (!topGroup && !bottomGroup) return;
+
+    // Allow external module to participate.
+    if (window.FerryLaneOverlay &&
+        typeof window.FerryLaneOverlay.render === "function") {
+      try {
+        // Reset sentinel before each render cycle.
+        window.__LANE_OVERLAY_OK__ = false;
+
+        window.FerryLaneOverlay.render({
+          topGroup,
+          bottomGroup,
+          upperLane,
+          lowerLane,
+          now,
+          CX,
+          CY,
+        });
+      } catch (err) {
+        console.error("[ferryClock] FerryLaneOverlay.render error:", err);
+        window.__LANE_OVERLAY_OK__ = false;
+      }
+    }
+
+    // If the module signaled success, skip fallback to avoid double-drawing.
+    if (window.__LANE_OVERLAY_OK__ === true) {
+      return;
+    }
+
+    // Fallback / baseline: original implementation.
+    console.warn("[ferryClock] LaneOverlay fallback path used");
+
+    if (upperLane) {
+      drawLaneRow(topGroup, upperLane, 95);
+    }
+
+    if (lowerLane) {
+      drawLaneRow(bottomGroup, lowerLane, 305);
+    }
+  }
+
+  renderLaneOverlay(layers.top, layers.bottom, upperLane, lowerLane, now);
+      // Dial-side WEST / EAST labels using same precedence as dotApp (Cannon: backend route drives labels)
+  const labelWestText =
+    (route.labelWest && String(route.labelWest).trim()) ||
+    (route.terminalNameWest && String(route.terminalNameWest).trim()) ||
+    "";
+  const labelEastText =
+    (route.labelEast && String(route.labelEast).trim()) ||
+    (route.terminalNameEast && String(route.terminalNameEast).trim()) ||
+    "";
+
+  if (labelWestText || labelEastText) {
+    // Horizontal positions aligned with lane bars (Cannon: west=left, east=right)
+    const barWidth = BAR_W;
+
+    // Base radius from center to bar end, plus extra outward offset
+    const offset = barWidth / 2 + 50; // 10px original + 50px outward
+
+    // Symmetric positions on 9–3 axis
+    const xWestLabel = CX - offset;
+    const xEastLabel = CX + offset;
+
+    // Vertically centered between upper and lower lanes (on 9–3 axis)
+    const yMid = CY;
+
+    // WEST label
+    if (labelWestText) {
+      const x = xWestLabel;
+      const y = yMid;
+      const t = elNS("text", {
+        x: String(x),
+        y: String(y),
+        "text-anchor": "middle",
+        "dominant-baseline": "middle",
+        // "font-weight": "bold",
+        "font-size": "12",
+        fill: "#2b2f9aff",
+        transform: `rotate(-90 ${x} ${y})`,
+      });
+      t.textContent = labelWestText;
+      layers.top.appendChild(t);
+    }
+
+    // EAST label
+    if (labelEastText) {
+      const x = xEastLabel;
+      const y = yMid;
+      const t = elNS("text", {
+        x: String(x),
+        y: String(y),
+        "text-anchor": "middle",
+        "dominant-baseline": "middle",
+        // "font-weight": "bold",
+        "font-size": "12",
+        fill: "#2b2f9aff",
+        transform: `rotate(90 ${x} ${y})`,
+      });
+      t.textContent = labelEastText;
+      layers.top.appendChild(t);
+    }
+  }
+}
+
+// Draws a central debug label if we fail early.
+function drawDebug(layers, msg) {
+  if (!layers) return;
+  layers.clear();
+
+  const t = document.createElementNS(ns, "text");
+  t.setAttribute("x", "200");
+  t.setAttribute("y", "200");
+  t.setAttribute("text-anchor", "middle");
+  t.setAttribute("font-size", "14");
+  t.setAttribute("fill", "#ef4444");
+  t.textContent = msg || "DEBUG";
+  layers.top.appendChild(t);
+}
+
+// ---------- wait until faceRenderer has registered getFaceLayers ----------
+function waitForFaceLayers() {
+  return new Promise(resolve => {
+    if (typeof window.getFaceLayers === "function") {
+      return resolve(window.getFaceLayers());
+    }
+
+    let attempts = 0;
+    const maxAttempts = 50;
+    const iv = setInterval(() => {
+      attempts++;
+      if (typeof window.getFaceLayers === "function") {
+        clearInterval(iv);
+        resolve(window.getFaceLayers());
+      } else if (attempts >= maxAttempts) {
+        clearInterval(iv);
+        console.warn("[ferryClock] getFaceLayers() never appeared after", attempts, "checks");
+        resolve(null);
+      }
+    }, 100);
+  });
+}
 
   // Mobile gesture + header controls
   document.addEventListener("DOMContentLoaded", function () {
@@ -1524,31 +1631,31 @@ async function onScheduleToggleClick() {
     }
 
     // Done button closes the picker and returns to clock view.
-doneBtn.addEventListener("click", function () {
-  // 1. Close the route picker
-  closeRoutePicker();
+    doneBtn.addEventListener("click", function () {
+    // 1. Close the route picker
+    closeRoutePicker();
 
-  // 2. Also close the schedule if it is open
-  if (schedulePanelEl && scheduleToggleBtnEl) {
-    const isOpen = scheduleToggleBtnEl.classList.contains("schedule-open");
-    if (isOpen) {
-      // Mimic user clicking "Hide ferry schedule"
-      schedulePanelEl.style.display = "none";
-      scheduleToggleBtnEl.textContent = "Show ferry schedule";
-      scheduleToggleBtnEl.classList.remove("schedule-open");
+    // 2. Also close the schedule if it is open
+    if (schedulePanelEl && scheduleToggleBtnEl) {
+      const isOpen = scheduleToggleBtnEl.classList.contains("schedule-open");
+      if (isOpen) {
+        // Mimic user clicking "Hide ferry schedule"
+        schedulePanelEl.style.display = "none";
+        scheduleToggleBtnEl.textContent = "Show ferry schedule";
+        scheduleToggleBtnEl.classList.remove("schedule-open");
 
-      // Reset inline styles to defaults
-      scheduleToggleBtnEl.style.backgroundColor = "";
-      scheduleToggleBtnEl.style.color = "";
-      scheduleToggleBtnEl.style.borderRadius = "";
+        // Reset inline styles to defaults
+        scheduleToggleBtnEl.style.backgroundColor = "";
+        scheduleToggleBtnEl.style.color = "";
+        scheduleToggleBtnEl.style.borderRadius = "";
 
-      const changeBtn = document.getElementById("schedule-change-route-btn");
-      if (changeBtn) {
-        changeBtn.classList.remove("schedule-open");
-        changeBtn.style.backgroundColor = "";
-        changeBtn.style.color = "";
-        changeBtn.style.borderRadius = "";
-      }
+        const changeBtn = document.getElementById("schedule-change-route-btn");
+        if (changeBtn) {
+          changeBtn.classList.remove("schedule-open");
+          changeBtn.style.backgroundColor = "";
+          changeBtn.style.color = "";
+          changeBtn.style.borderRadius = "";
+        }
     }
   }
 });
