@@ -1187,10 +1187,16 @@ if (laneStrategy === "liveTerminals") {
       lowerRaw = byId.get(scheduledLower.vesselId) || null;
     }
 
-    // If neither lane has a scheduled vessel → synthetic fallback
-    if (!upperRaw && !lowerRaw) {
+    // If schedule assigned no vessels at all, then synthetic fallback is appropriate.
+    // IMPORTANT: do NOT fall back just because live vessellocations is missing.
+    const hasScheduled =
+      (scheduledUpper && scheduledUpper.vesselId != null) ||
+      (scheduledLower && scheduledLower.vesselId != null);
+
+    if (!hasScheduled) {
       return buildSyntheticState(route, terminalIdWest, terminalIdEast, now);
     }
+
   }
 
   // ---- Build lanes with last-good caching ----
@@ -1198,6 +1204,39 @@ if (laneStrategy === "liveTerminals") {
   let lowerLane;
   let upperSource = "missing"; // "live" | "stale" | "missing"
   let lowerSource = "missing";
+
+  // ---------------------------------------------------------------------
+  // Schedule-only lane construction fallback
+  // If schedule assigns a vessel but live vessellocations is missing,
+  // build a stale at-dock lane so direction can be inferred correctly.
+  // ---------------------------------------------------------------------
+  if (laneStrategy === "schedule") {
+    if (!upperRaw && scheduledUpper && scheduledUpper.vesselId != null) {
+      upperRaw = {
+        vesselId: scheduledUpper.vesselId,
+        vesselName: scheduledUpper.vesselName,
+        atDock: true,
+        departingId: null,
+        arrivingId: null,
+        leftDockIso: null,
+        etaIso: null,
+        isSynthetic: true,
+      };
+    }
+
+    if (!lowerRaw && scheduledLower && scheduledLower.vesselId != null) {
+      lowerRaw = {
+        vesselId: scheduledLower.vesselId,
+        vesselName: scheduledLower.vesselName,
+        atDock: true,
+        departingId: null,
+        arrivingId: null,
+        leftDockIso: null,
+        etaIso: null,
+        isSynthetic: true,
+      };
+    }
+  }
 
   // UPPER lane: slot 1 vessel, direction from live terminals when available,
   // otherwise use schedule to choose dock side when at dock.
@@ -1235,6 +1274,36 @@ if (laneStrategy === "liveTerminals") {
         lowerLane = null;
         lowerSource = "missing";
       }
+    }
+
+    // --------------------
+    // UPPER lane (slot 1)
+    // --------------------
+    if (upperRaw) {
+      const upperDirMeta = deriveDirectionWithSchedule(
+        upperRaw,
+        scheduledUpper,
+        terminalIdWest,
+        terminalIdEast,
+        "WEST_TO_EAST"
+      );
+
+      upperLane = buildLaneFromVessel(upperRaw, {
+        laneId: "UPPER",
+        positionNumber: 1,
+        direction: upperDirMeta.direction,
+        departureTerminalId: upperDirMeta.departureTerminalId,
+        arrivalTerminalId: upperDirMeta.arrivalTerminalId,
+        route,
+        now,
+      });
+
+      upperSource = "live";
+    }
+
+    // >>> INSERT HERE <<<
+    if (upperLane && upperRaw && upperRaw.isSynthetic) {
+      upperLane.isStale = true;
     }
 
       // LOWER lane: slot 2 vessel, direction from live terminals when available,
@@ -1281,6 +1350,36 @@ if (laneStrategy === "liveTerminals") {
       });
       lowerSource = "missing";
     }
+  }
+
+  // --------------------
+  // LOWER lane (slot 2)
+  // --------------------
+  if (lowerRaw) {
+    const lowerDirMeta = deriveDirectionWithSchedule(
+      lowerRaw,
+      scheduledLower,
+      terminalIdWest,
+      terminalIdEast,
+      "EAST_TO_WEST"
+    );
+
+    lowerLane = buildLaneFromVessel(lowerRaw, {
+      laneId: "LOWER",
+      positionNumber: 2,
+      direction: lowerDirMeta.direction,
+      departureTerminalId: lowerDirMeta.departureTerminalId,
+      arrivalTerminalId: lowerDirMeta.arrivalTerminalId,
+      route,
+      now,
+    });
+
+    lowerSource = "live";
+  }
+
+  // >>> INSERT HERE <<<
+  if (lowerLane && lowerRaw && lowerRaw.isSynthetic) {
+    lowerLane.isStale = true;
   }
 
   // Snap stale lanes to dock if we've passed their ETA.
