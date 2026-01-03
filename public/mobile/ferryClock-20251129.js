@@ -1,4 +1,4 @@
-// public/mobile/ferryClock.js — FerryClock3 analog overlay scaffold (with debug logging).
+// public/mobile/ferryClock-20251129.js — FerryClock3 analog overlay scaffold (with debug logging).
 
 (function () {
   const REFRESH_MS = 10_000;

@@ -322,7 +322,7 @@ function updateDockMetaForLane(routeId, laneKey, lane, now) {
         const schedMs = Date.parse(schedIso);
         if (isFinite(schedMs)) {
           let dockStartMs = schedMs - 25 * 60 * 1000;
-          if (dockStartMs < nowMs) {
+          if (dockStartMs > nowMs) {
             dockStartMs = nowMs;
           }
           dockStartTime = new Date(dockStartMs).toISOString();
