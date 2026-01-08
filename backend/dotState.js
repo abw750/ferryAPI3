@@ -103,6 +103,16 @@ function serviceDayKeyPacific(date) {
   return d.getTime();
 }
 
+function formatPacificYmd(date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(date); // "YYYY-MM-DD"
+}
+
 function deriveCapacityForSide(options) {
   const {
     routeId,
@@ -522,7 +532,7 @@ function pickLaneVesselsFromLive(route, terminalIdWest, terminalIdEast, rawList)
 
 async function deriveLaneVesselsForRoute(route, terminalIdWest, now) {
   // Trip date in YYYY-MM-DD form based on "now".
-  const tripDateText = now.toISOString().slice(0, 10);
+  const tripDateText = formatPacificYmd(now);
 
   let rows;
   try {
@@ -837,7 +847,7 @@ async function deriveNextDeparturesForLeg(route, terminalIdWest, terminalIdEast,
     return null;
   }
 
-  const tripDateText = now.toISOString().slice(0, 10);
+  const tripDateText = formatPacificYmd(now);
   let data;
   try {
     data = await fetchDailyScheduleRaw(route.routeId, tripDateText);
@@ -935,7 +945,7 @@ async function buildDotState(routeId) {
   let { terminalIdWest, terminalIdEast } = getTerminalIdsForRoute(route);
 
   try {
-    const tripDateText = nowIso.slice(0, 10);
+    const tripDateText =formatPacificYmd(now);
 
     const sched = await fetchDailyScheduleRaw(route.routeId, tripDateText);
 
