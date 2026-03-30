@@ -167,11 +167,11 @@ async function buildScheduleForRoute(routeId) {
   const nowMs = now.getTime();
 
   // Fetch TODAY + TOMORROW schedules (Pacific calendar days, unfiltered).
-  const todayYmd = formatPacificYmd(now);
+  const todayYmd = formatPacificTripDateText(now);
 
   const tomorrow = new Date(now.getTime());
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowYmd = formatPacificYmd(tomorrow);
+  const tomorrowYmd = formatPacificTripDateText(tomorrow);
 
   const [rawToday, rawTomorrow] = await Promise.all([
     fetchDailyScheduleRaw(route.routeId, todayYmd),
