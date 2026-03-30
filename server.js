@@ -136,15 +136,23 @@ function parseWsdotDate(raw) {
   return new Date(ms);
 }
 
-function formatPacificYmd(date) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+function formatPacificTripDateText(date) {
+  const month = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "2-digit",
+  }).format(date);
+
+  const day = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    day: "2-digit",
+  }).format(date);
+
+  const year = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
     year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  // en-CA with those options returns "YYYY-MM-DD"
-  return formatter.format(date);
+  }).format(date);
+
+  return `${month}-${day}-${year}`; // MM-DD-YYYY
 }
 
 async function buildScheduleForRoute(routeId) {
