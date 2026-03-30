@@ -31,6 +31,8 @@
     track: COLOR_TRACK,
   };
 
+  const ns = "http://www.w3.org/2000/svg";
+
   // Global palette used by all overlays (lanes, pies, arcs)
   window.FerryPalette = {
     strongLtr: COLOR_STRONG_LTR,
