@@ -1,7 +1,7 @@
 // public/mobile/ferryClock-20251129.js — FerryClock3 analog overlay scaffold (with debug logging).
 
 (function () {
-  const REFRESH_MS = 10_000;
+  const REFRESH_MS = 90_000;
   let currentRouteId = null;
   let refreshTimerId = null;
   let routeSelectEl = null;
